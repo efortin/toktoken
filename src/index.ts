@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import pino from 'pino';
 import { loadConfig } from './config.js';
 import { AnthropicRouter, countTokens } from './router.js';
 import type { AnthropicRequest, OpenAIRequest } from './types/index.js';
@@ -10,6 +11,8 @@ interface TokenCountRequest {
   tools?: { name?: string; description?: string; input_schema?: unknown }[];
 }
 
+const logger = pino({ level: 'info' });
+
 async function checkBackendHealth(url: string, name: string): Promise<void> {
   const healthUrl = `${url}/health`;
   const modelsUrl = `${url}/v1/models`;
@@ -19,7 +22,7 @@ async function checkBackendHealth(url: string, name: string): Promise<void> {
       const response = await fetch(endpoint, { method: 'GET', signal: AbortSignal.timeout(5000) });
       // Accept 200 OK or 401 Unauthorized (means server is reachable but requires auth)
       if (response.ok || response.status === 401) {
-        console.log(`✅ Backend ${name} reachable at ${endpoint}`);
+        logger.info({ backend: name, endpoint }, 'Backend reachable');
         return;
       }
     } catch {
@@ -27,14 +30,14 @@ async function checkBackendHealth(url: string, name: string): Promise<void> {
     }
   }
   
-  throw new Error(`❌ Backend ${name} unreachable at ${url} - check VLLM_URL`);
+  throw new Error(`Backend ${name} unreachable at ${url} - check VLLM_URL`);
 }
 
 async function main() {
   const config = loadConfig();
   
   // Verify backend connectivity before starting
-  console.log(`🔍 Checking backend connectivity...`);
+  logger.info('Checking backend connectivity');
   await checkBackendHealth(config.defaultBackend.url, config.defaultBackend.name);
   
   if (config.visionBackend) {
@@ -201,9 +204,16 @@ async function main() {
   
   await app.listen({ host, port });
   
-  console.log(`🚀 Anthropic Router listening on http://${host}:${port}`);
-  console.log(`   Backend: ${config.defaultBackend.url} (${config.defaultBackend.model})`);
-  console.log(`   Telemetry: ${config.telemetry.enabled ? 'enabled' : 'disabled'}`);
+  logger.info({
+    host,
+    port,
+    backend: config.defaultBackend.url,
+    model: config.defaultBackend.model,
+    telemetry: config.telemetry.enabled
+  }, 'Server started');
 }
 
-main().catch(console.error);
+main().catch((err) => {
+  logger.error({ err }, 'Failed to start server');
+  process.exit(1);
+});

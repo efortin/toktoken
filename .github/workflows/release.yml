@@ -17,6 +17,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     permissions:
       contents: write
+      packages: write
 
     steps:
       - name: Checkout
@@ -53,13 +54,34 @@ jobs:
       - name: Commit and tag
         run: |
           git add package.json package-lock.json
-          git commit -m "chore: release v${{ steps.version.outputs.version }}"
-          git tag "v${{ steps.version.outputs.version }}"
+          git commit -m "chore: release ${{ steps.version.outputs.version }}"
+          git tag "${{ steps.version.outputs.version }}"
           git push origin main --tags
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/token-gate:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/token-gate:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: v${{ steps.version.outputs.version }}
+          tag_name: ${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.version }}
           generate_release_notes: true

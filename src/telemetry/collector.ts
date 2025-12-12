@@ -1,4 +1,7 @@
+import pino from 'pino';
 import type { TokenUsage, TelemetryConfig } from '../types/index.js';
+
+const logger = pino({ level: 'info' });
 
 export class TelemetryCollector {
   private config: TelemetryConfig;
@@ -31,7 +34,7 @@ export class TelemetryCollector {
 
     // Send to external endpoint if configured
     if (this.config.endpoint) {
-      this.sendToEndpoint(fullUsage).catch(console.error);
+      this.sendToEndpoint(fullUsage).catch((err) => logger.error({ err }, 'Failed to send telemetry'));
     }
   }
 
@@ -44,8 +47,8 @@ export class TelemetryCollector {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(usage),
       });
-    } catch (e) {
-      console.error('Failed to send telemetry:', e);
+    } catch (err) {
+      logger.error({ err }, 'Failed to send telemetry');
     }
   }
 

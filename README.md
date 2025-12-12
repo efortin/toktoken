@@ -1,4 +1,4 @@
-# Anthropic Router
+# Token Gate
 
 A lightweight TypeScript proxy that enables [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and other Anthropic API clients to use [vLLM](https://docs.vllm.ai/) backends.
 
@@ -65,38 +65,38 @@ All configuration is done via environment variables:
 ### Build
 
 ```bash
-docker build -t anthropic-router .
+docker build -t token-gate .
 ```
 
 ### Run
 
 ```bash
-docker run -d --name anthropic-router \
+docker run -d --name token-gate \
   -p 3456:3456 \
   -e VLLM_URL=http://your-vllm-server:8000 \
   -e VLLM_API_KEY=your-vllm-api-key \
   -e VLLM_MODEL=your-model-name \
   -e API_KEY=your-api-key \
-  anthropic-router
+  token-gate
 ```
 
 ### Local vLLM (Docker Desktop)
 
 ```bash
-docker run -d --name anthropic-router \
+docker run -d --name token-gate \
   -p 3456:3456 \
   -e VLLM_URL=http://host.docker.internal:8000 \
   -e VLLM_MODEL=your-model-name \
   -e API_KEY=your-api-key \
-  anthropic-router
+  token-gate
 ```
 
 ### Container Management
 
 ```bash
-docker logs -f anthropic-router  # View logs
-docker stop anthropic-router     # Stop
-docker rm anthropic-router       # Remove
+docker logs -f token-gate  # View logs
+docker stop token-gate     # Stop
+docker rm token-gate       # Remove
 ```
 
 ## Claude Code Integration
@@ -167,7 +167,7 @@ curl -X POST http://localhost:3456/v1/messages \
                  │
                  ▼
 ┌─────────────────────────────────────────┐
-│          Anthropic Router               │
+│            Token Gate                    │
 │  ┌─────────────────────────────────┐    │
 │  │ • Startup health check          │    │
 │  │ • API key validation            │    │

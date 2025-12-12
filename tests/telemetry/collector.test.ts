@@ -184,7 +184,6 @@ describe('TelemetryCollector', () => {
     });
 
     it('should handle endpoint errors gracefully', async () => {
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
       mockFetch.mockRejectedValueOnce(new Error('Network error'));
 
       const endpointCollector = new TelemetryCollector({
@@ -204,11 +203,11 @@ describe('TelemetryCollector', () => {
         hasVision: false,
       });
 
-      // Wait for async fetch to complete
+      // Wait for async fetch to complete - should not throw
       await new Promise(resolve => setTimeout(resolve, 10));
 
-      expect(consoleSpy).toHaveBeenCalled();
-      consoleSpy.mockRestore();
+      // Verify fetch was called (error was handled internally via pino logger)
+      expect(mockFetch).toHaveBeenCalled();
     });
 
     it('should limit usage log to 1000 entries', () => {
