@@ -223,5 +223,184 @@ describe('anthropic-to-openai conversion', () => {
       expect(result.content).toEqual([]);
       expect(result.stop_reason).toBeNull();
     });
+
+    it('should convert tool_calls to tool_use blocks', () => {
+      const response: OpenAIResponse = {
+        id: 'chatcmpl-123',
+        object: 'chat.completion',
+        created: 1234567890,
+        model: 'gpt-4',
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [{
+              id: 'call_123',
+              type: 'function',
+              function: {
+                name: 'get_weather',
+                arguments: '{"location": "Paris"}',
+              },
+            }],
+          },
+          finish_reason: 'tool_calls',
+        }],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 5,
+          total_tokens: 15,
+        },
+      };
+
+      const result = convertOpenAIToAnthropic(response, 'claude-3');
+
+      expect(result.stop_reason).toBe('tool_use');
+      expect(result.content).toHaveLength(1);
+      expect(result.content[0]).toEqual({
+        type: 'tool_use',
+        id: 'call_123',
+        name: 'get_weather',
+        input: { location: 'Paris' },
+      });
+    });
+
+    it('should handle invalid JSON in tool arguments', () => {
+      const response: OpenAIResponse = {
+        id: 'chatcmpl-123',
+        object: 'chat.completion',
+        created: 1234567890,
+        model: 'gpt-4',
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [{
+              id: 'call_123',
+              type: 'function',
+              function: {
+                name: 'get_weather',
+                arguments: 'invalid json',
+              },
+            }],
+          },
+          finish_reason: 'tool_calls',
+        }],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 5,
+          total_tokens: 15,
+        },
+      };
+
+      const result = convertOpenAIToAnthropic(response, 'claude-3');
+
+      expect(result.content[0]).toEqual({
+        type: 'tool_use',
+        id: 'call_123',
+        name: 'get_weather',
+        input: {},
+      });
+    });
+
+    it('should handle content with tool_calls together', () => {
+      const response: OpenAIResponse = {
+        id: 'chatcmpl-123',
+        object: 'chat.completion',
+        created: 1234567890,
+        model: 'gpt-4',
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: 'Let me check the weather',
+            tool_calls: [{
+              id: 'call_123',
+              type: 'function',
+              function: {
+                name: 'get_weather',
+                arguments: '{"location": "Paris"}',
+              },
+            }],
+          },
+          finish_reason: 'tool_calls',
+        }],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 5,
+          total_tokens: 15,
+        },
+      };
+
+      const result = convertOpenAIToAnthropic(response, 'claude-3');
+
+      expect(result.content).toHaveLength(2);
+      expect(result.content[0]).toEqual({ type: 'text', text: 'Let me check the weather' });
+      expect(result.content[1]).toEqual({
+        type: 'tool_use',
+        id: 'call_123',
+        name: 'get_weather',
+        input: { location: 'Paris' },
+      });
+    });
+  });
+
+  describe('convertAnthropicToOpenAI - tools', () => {
+    it('should convert Anthropic tools to OpenAI format', () => {
+      const request: AnthropicRequest = {
+        model: 'claude-3',
+        messages: [{ role: 'user', content: 'What is the weather?' }],
+        max_tokens: 100,
+        tools: [{
+          name: 'get_weather',
+          description: 'Get weather for a location',
+          input_schema: {
+            type: 'object',
+            properties: {
+              location: { type: 'string' },
+            },
+            required: ['location'],
+          },
+        }],
+      };
+
+      const result = convertAnthropicToOpenAI(request);
+
+      expect(result.tools).toHaveLength(1);
+      expect(result.tools?.[0]).toEqual({
+        type: 'function',
+        function: {
+          name: 'get_weather',
+          description: 'Get weather for a location',
+          parameters: {
+            type: 'object',
+            properties: {
+              location: { type: 'string' },
+            },
+            required: ['location'],
+          },
+        },
+      });
+    });
+
+    it('should handle system as array of blocks', () => {
+      const request: AnthropicRequest = {
+        model: 'claude-3',
+        messages: [{ role: 'user', content: 'Hello' }],
+        max_tokens: 100,
+        system: [
+          { type: 'text', text: 'You are helpful.' },
+          { type: 'text', text: 'Be concise.' },
+        ],
+      };
+
+      const result = convertAnthropicToOpenAI(request);
+
+      expect(result.messages[0]).toEqual({
+        role: 'system',
+        content: 'You are helpful.\nBe concise.',
+      });
+    });
   });
 });

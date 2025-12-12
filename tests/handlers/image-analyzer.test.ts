@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
+  hasImages,
   lastMessageHasImages,
   historyHasImages,
   processImagesInLastMessage,
@@ -577,6 +578,276 @@ describe('Image Analyzer', () => {
       });
 
       expect(result.messages[0].content).toContain('[Image analysis error]');
+    });
+  });
+
+  describe('hasImages', () => {
+    it('should return true when any message has images', () => {
+      const request: AnthropicRequest = {
+        model: 'test',
+        max_tokens: 100,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'abc' } },
+            ],
+          },
+          { role: 'assistant', content: 'I see' },
+        ],
+      };
+      expect(hasImages(request)).toBe(true);
+      expect(lastMessageHasImages(request)).toBe(false);
+      expect(historyHasImages(request)).toBe(true);
+    });
+
+    it('should return false for assistant messages with array content', () => {
+      const request: AnthropicRequest = {
+        model: 'test',
+        max_tokens: 100,
+        messages: [
+          { role: 'user', content: 'Hello' },
+          { role: 'assistant', content: 'Hi there' },
+        ],
+      };
+      expect(hasImages(request)).toBe(false);
+      expect(historyHasImages(request)).toBe(false);
+    });
+
+    it('should return false when no images in any message', () => {
+      const request: AnthropicRequest = {
+        model: 'test',
+        max_tokens: 100,
+        messages: [
+          { role: 'user', content: 'Hello' },
+          { role: 'assistant', content: 'Hi' },
+          { role: 'user', content: [{ type: 'text', text: 'How are you?' }] },
+        ],
+      };
+      expect(hasImages(request)).toBe(false);
+    });
+
+    it('should skip non-user messages when checking for images', () => {
+      const request: AnthropicRequest = {
+        model: 'test',
+        max_tokens: 100,
+        messages: [
+          { role: 'assistant', content: 'Hello' },
+          { role: 'user', content: 'Hi' },
+        ],
+      };
+      expect(hasImages(request)).toBe(false);
+    });
+  });
+
+  describe('processImagesInLastMessage edge cases', () => {
+    it('should return unchanged request when last message is assistant', async () => {
+      const request: AnthropicRequest = {
+        model: 'test',
+        max_tokens: 100,
+        messages: [
+          { role: 'user', content: 'Hello' },
+          { role: 'assistant', content: 'Hi there' },
+        ],
+      };
+
+      const result = await processImagesInLastMessage(request, {
+        visionBackend: {
+          url: 'http://localhost:8000',
+          model: 'vision-model',
+          apiKey: 'test-key',
+          name: 'vision',
+        },
+      });
+
+      expect(result).toEqual(request);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('should return unchanged request when last message content is string', async () => {
+      const request: AnthropicRequest = {
+        model: 'test',
+        max_tokens: 100,
+        messages: [
+          { role: 'user', content: 'Hello' },
+        ],
+      };
+
+      const result = await processImagesInLastMessage(request, {
+        visionBackend: {
+          url: 'http://localhost:8000',
+          model: 'vision-model',
+          apiKey: 'test-key',
+          name: 'vision',
+        },
+      });
+
+      expect(result).toEqual(request);
+    });
+
+    it('should keep mixed content as array when not all text', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'Analysis result' } }],
+        }),
+      });
+
+      const request: AnthropicRequest = {
+        model: 'test',
+        max_tokens: 100,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Look at this' },
+              { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'abc' } },
+              { type: 'tool_result', tool_use_id: 'tool1', content: 'result' },
+            ],
+          },
+        ],
+      };
+
+      const result = await processImagesInLastMessage(request, {
+        visionBackend: {
+          url: 'http://localhost:8000',
+          model: 'vision-model',
+          apiKey: 'test-key',
+          name: 'vision',
+        },
+      });
+
+      // Should be array since tool_result is not text
+      expect(Array.isArray(result.messages[0].content)).toBe(true);
+    });
+  });
+
+  describe('removeImagesFromHistory edge cases', () => {
+    it('should handle mixed content in history', () => {
+      const request: AnthropicRequest = {
+        model: 'test',
+        max_tokens: 100,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Look' },
+              { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'abc' } },
+              { type: 'tool_result', tool_use_id: 'tool1', content: 'result' },
+            ],
+          },
+          { role: 'assistant', content: 'I see' },
+          { role: 'user', content: 'What now?' },
+        ],
+      };
+
+      const result = removeImagesFromHistory(request);
+
+      // First message should have array content (not all text due to tool_result)
+      expect(Array.isArray(result.messages[0].content)).toBe(true);
+    });
+  });
+
+  describe('OpenAI format edge cases', () => {
+    it('should return unchanged request when last message is not user', async () => {
+      const request: OpenAIRequest = {
+        model: 'test',
+        messages: [
+          { role: 'user', content: 'Hello' },
+          { role: 'assistant', content: 'Hi' },
+        ],
+      };
+
+      const result = await processOpenAIImagesInLastMessage(request, {
+        visionBackend: {
+          url: 'http://localhost:8000',
+          model: 'vision-model',
+          apiKey: 'test-key',
+          name: 'vision',
+        },
+      });
+
+      expect(result).toEqual(request);
+    });
+
+    it('should return unchanged request when content is string', async () => {
+      const request: OpenAIRequest = {
+        model: 'test',
+        messages: [
+          { role: 'user', content: 'Hello' },
+        ],
+      };
+
+      const result = await processOpenAIImagesInLastMessage(request, {
+        visionBackend: {
+          url: 'http://localhost:8000',
+          model: 'vision-model',
+          apiKey: 'test-key',
+          name: 'vision',
+        },
+      });
+
+      expect(result).toEqual(request);
+    });
+
+    it('should handle non-data URL images', async () => {
+      const request: OpenAIRequest = {
+        model: 'test',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Look' },
+              { type: 'image_url', image_url: { url: 'https://example.com/image.png' } },
+            ],
+          },
+        ],
+      };
+
+      const result = await processOpenAIImagesInLastMessage(request, {
+        visionBackend: {
+          url: 'http://localhost:8000',
+          model: 'vision-model',
+          apiKey: 'test-key',
+          name: 'vision',
+        },
+      });
+
+      expect(result.messages[0].content).toContain('[Image URL not supported');
+    });
+
+    it('should handle mixed content keeping array format', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'Analysis' } }],
+        }),
+      });
+
+      const request: OpenAIRequest = {
+        model: 'test',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Look' },
+              { type: 'image_url', image_url: { url: 'data:image/png;base64,abc' } },
+            ],
+          },
+        ],
+      };
+
+      const result = await processOpenAIImagesInLastMessage(request, {
+        visionBackend: {
+          url: 'http://localhost:8000',
+          model: 'vision-model',
+          apiKey: 'test-key',
+          name: 'vision',
+        },
+      });
+
+      // All text, should be string
+      expect(typeof result.messages[0].content).toBe('string');
     });
   });
 });
