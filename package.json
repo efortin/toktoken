@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -b src && cp src/agents/*.md dist/agents/",
+    "build": "tsc -b src && mkdir -p dist/vision && cp src/vision/*.md dist/vision/",
     "start": "node dist/index.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

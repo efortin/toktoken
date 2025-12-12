@@ -4,8 +4,12 @@ import {
   historyHasImages,
   processImagesInLastMessage,
   removeImagesFromHistory,
-} from '../../src/agents/index.js';
-import type { AnthropicRequest } from '../../src/types/index.js';
+  openaiLastMessageHasImages,
+  openaiHistoryHasImages,
+  processOpenAIImagesInLastMessage,
+  removeOpenAIImagesFromHistory,
+} from '../../src/vision/index.js';
+import type { AnthropicRequest, OpenAIRequest } from '../../src/types/index.js';
 
 // Mock fetch
 const mockFetch = vi.fn();
@@ -343,6 +347,236 @@ describe('Image Analyzer', () => {
 
       // No additional calls to vision API
       expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('should only process last message image when history also has images', async () => {
+      // Simulate: first message had image (already processed), second message has new image
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'Second image analysis' } }],
+        }),
+      });
+
+      const request: AnthropicRequest = {
+        model: 'test',
+        max_tokens: 100,
+        messages: [
+          // First message: image already in history (should NOT be re-analyzed)
+          {
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'first_image' } },
+            ],
+          },
+          { role: 'assistant', content: 'I see the first image' },
+          // Second message: new image (should be analyzed)
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Now look at this' },
+              { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'second_image' } },
+            ],
+          },
+        ],
+      };
+
+      // Process images in last message
+      const result = await processImagesInLastMessage(request, {
+        visionBackend: {
+          url: 'http://localhost:8000',
+          model: 'vision-model',
+          apiKey: 'test-key',
+          name: 'vision',
+        },
+      });
+
+      // Only ONE call - for the second image in last message
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      // First message image should be UNCHANGED (not re-analyzed)
+      expect(result.messages[0].content).toEqual([
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'first_image' } },
+      ]);
+
+      // Last message should have image replaced
+      expect(result.messages[2].content).toBe('Now look at this\n\n[Image 1 analysis]:\nSecond image analysis');
+
+      // Now remove images from history
+      const cleaned = removeImagesFromHistory(result);
+
+      // First message image should now be placeholder
+      expect(cleaned.messages[0].content).toBe('[Image 1 - previously analyzed]');
+
+      // Last message should still have the analysis (unchanged)
+      expect(cleaned.messages[2].content).toBe('Now look at this\n\n[Image 1 analysis]:\nSecond image analysis');
+    });
+  });
+
+  describe('OpenAI format - image detection', () => {
+    it('should detect images in OpenAI format last message', () => {
+      const request: OpenAIRequest = {
+        model: 'test',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'What is this?' },
+              { type: 'image_url', image_url: { url: 'data:image/png;base64,abc123' } },
+            ],
+          },
+        ],
+      };
+      expect(openaiLastMessageHasImages(request)).toBe(true);
+    });
+
+    it('should return false when no images in OpenAI format', () => {
+      const request: OpenAIRequest = {
+        model: 'test',
+        messages: [
+          { role: 'user', content: 'Hello' },
+        ],
+      };
+      expect(openaiLastMessageHasImages(request)).toBe(false);
+    });
+
+    it('should detect images in OpenAI format history', () => {
+      const request: OpenAIRequest = {
+        model: 'test',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image_url', image_url: { url: 'data:image/png;base64,old' } },
+            ],
+          },
+          { role: 'assistant', content: 'I see it' },
+          { role: 'user', content: 'What else?' },
+        ],
+      };
+      expect(openaiHistoryHasImages(request)).toBe(true);
+    });
+  });
+
+  describe('OpenAI format - image processing', () => {
+    it('should process OpenAI format images', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'A blue circle' } }],
+        }),
+      });
+
+      const request: OpenAIRequest = {
+        model: 'test',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Describe this' },
+              { type: 'image_url', image_url: { url: 'data:image/png;base64,abc123' } },
+            ],
+          },
+        ],
+      };
+
+      const result = await processOpenAIImagesInLastMessage(request, {
+        visionBackend: {
+          url: 'http://localhost:8000',
+          model: 'vision-model',
+          apiKey: 'test-key',
+          name: 'vision',
+        },
+      });
+
+      expect(result.messages[0].content).toBe('Describe this\n\n[Image 1 analysis]:\nA blue circle');
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('should remove OpenAI format images from history', () => {
+      const request: OpenAIRequest = {
+        model: 'test',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Look' },
+              { type: 'image_url', image_url: { url: 'data:image/png;base64,old' } },
+            ],
+          },
+          { role: 'assistant', content: 'I see' },
+          { role: 'user', content: 'What now?' },
+        ],
+      };
+
+      const result = removeOpenAIImagesFromHistory(request);
+
+      expect(result.messages[0].content).toBe('Look\n\n[Image 1 - previously analyzed]');
+      expect(result.messages[2].content).toBe('What now?');
+    });
+  });
+
+  describe('Error handling', () => {
+    it('should handle vision API failure gracefully', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: async () => 'Internal Server Error',
+      });
+
+      const request: AnthropicRequest = {
+        model: 'test',
+        max_tokens: 100,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'What is this?' },
+              { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'abc' } },
+            ],
+          },
+        ],
+      };
+
+      const result = await processImagesInLastMessage(request, {
+        visionBackend: {
+          url: 'http://localhost:8000',
+          model: 'vision-model',
+          apiKey: 'test-key',
+          name: 'vision',
+        },
+      });
+
+      // Should contain error message instead of crashing
+      expect(result.messages[0].content).toContain('[Image analysis failed]');
+    });
+
+    it('should handle network error gracefully', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+      const request: AnthropicRequest = {
+        model: 'test',
+        max_tokens: 100,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'abc' } },
+            ],
+          },
+        ],
+      };
+
+      const result = await processImagesInLastMessage(request, {
+        visionBackend: {
+          url: 'http://localhost:8000',
+          model: 'vision-model',
+          apiKey: 'test-key',
+          name: 'vision',
+        },
+      });
+
+      expect(result.messages[0].content).toContain('[Image analysis error]');
     });
   });
 });

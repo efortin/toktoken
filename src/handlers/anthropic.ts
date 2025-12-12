@@ -7,22 +7,10 @@ function isInternalBackend(url: string): boolean {
   return url.includes('.cluster.local') || url.startsWith('http://');
 }
 
-const VISION_SYSTEM_PROMPT = `You are a vision analysis assistant. Your role is to interpret and analyze images accurately.
-When analyzing an image:
-1. Describe what you see clearly and precisely
-2. Extract any text (OCR) if present
-3. Identify objects, layouts, colors, and relevant details
-4. Focus on the user's specific question about the image
-5. Be concise but thorough in your analysis
-
-Always provide actionable information based on the image content.`;
-
 function getAuthHeader(backend: BackendConfig, clientAuthHeader?: string): string {
   if (isInternalBackend(backend.url)) {
-    // Internal backend: always use configured API key
     return `Bearer ${backend.apiKey}`;
   }
-  // External backend: forward client header (required for JWT auth via kgateway)
   if (!clientAuthHeader) {
     throw new Error('Authorization header required for external backend');
   }
@@ -33,7 +21,6 @@ export interface AnthropicHandlerOptions {
   backend: BackendConfig;
   onTelemetry?: (usage: Omit<TokenUsage, 'totalTokens'>) => void;
   clientAuthHeader?: string;
-  isVisionRequest?: boolean;
 }
 
 async function callBackend(
@@ -91,20 +78,10 @@ export async function handleAnthropicRequest(
 ): Promise<AnthropicResponse> {
   const startTime = Date.now();
   const requestId = crypto.randomUUID();
-  const { backend, onTelemetry, clientAuthHeader, isVisionRequest } = options;
+  const { backend, onTelemetry, clientAuthHeader } = options;
   
   const authHeader = getAuthHeader(backend, clientAuthHeader);
-
-  // Inject vision system prompt for vision requests
-  let modifiedRequest = request;
-  if (isVisionRequest) {
-    modifiedRequest = {
-      ...request,
-      system: VISION_SYSTEM_PROMPT,
-    };
-  }
-
-  const result = await callBackend(modifiedRequest, backend, authHeader);
+  const result = await callBackend(request, backend, authHeader);
 
   const hasToolCalls = result.content?.some(c => c.type === 'tool_use') || false;
   const hasVision = request.messages.some(msg => 
@@ -134,23 +111,14 @@ export async function* handleAnthropicStreamingRequest(
 ): AsyncGenerator<string> {
   const startTime = Date.now();
   const requestId = crypto.randomUUID();
-  const { backend, onTelemetry, clientAuthHeader, isVisionRequest } = options;
+  const { backend, onTelemetry, clientAuthHeader } = options;
   
   const authHeader = getAuthHeader(backend, clientAuthHeader);
 
   const estimatedInputTokens = estimateRequestTokens(request.messages);
   const enricher = new SSEEnricher({ estimatedInputTokens });
 
-  // Inject vision system prompt for vision requests
-  let modifiedRequest = request;
-  if (isVisionRequest) {
-    modifiedRequest = {
-      ...request,
-      system: VISION_SYSTEM_PROMPT,
-    };
-  }
-
-  const proxyRequest = { ...modifiedRequest, model: backend.model, stream: true };
+  const proxyRequest = { ...request, model: backend.model, stream: true };
 
   const response = await fetch(`${backend.url}/v1/messages`, {
     method: 'POST',

@@ -13,7 +13,11 @@ import {
   historyHasImages,
   processImagesInLastMessage,
   removeImagesFromHistory,
-} from './agents/index.js';
+  openaiLastMessageHasImages,
+  openaiHistoryHasImages,
+  processOpenAIImagesInLastMessage,
+  removeOpenAIImagesFromHistory,
+} from './vision/index.js';
 
 // Re-export for backwards compatibility
 export { countTokens };
@@ -54,7 +58,6 @@ export class AnthropicRouter {
       backend,
       onTelemetry: (usage) => this.telemetry.record(usage),
       clientAuthHeader,
-      isVisionRequest: false,
     });
   }
 
@@ -79,13 +82,27 @@ export class AnthropicRouter {
       backend,
       onTelemetry: (usage) => this.telemetry.record(usage),
       clientAuthHeader,
-      isVisionRequest: false,
     });
   }
 
   async handleOpenAIRequest(request: OpenAIRequest, clientAuthHeader?: string): Promise<OpenAIResponse> {
-    const backend = this.backendSelector.selectForOpenAI(request);
-    return openaiHandler(request, {
+    let processedRequest = request;
+    
+    // If last message has images, analyze them and replace with descriptions
+    if (openaiLastMessageHasImages(request) && this.config.visionBackend) {
+      processedRequest = await processOpenAIImagesInLastMessage(request, {
+        visionBackend: this.config.visionBackend,
+        clientAuthHeader,
+      });
+      // Remove images from history
+      processedRequest = removeOpenAIImagesFromHistory(processedRequest);
+    } else if (openaiHistoryHasImages(request)) {
+      // Just remove images from history
+      processedRequest = removeOpenAIImagesFromHistory(request);
+    }
+
+    const backend = this.backendSelector.selectForOpenAI(processedRequest);
+    return openaiHandler(processedRequest, {
       backend,
       onTelemetry: (usage) => this.telemetry.record(usage),
       clientAuthHeader,
@@ -93,8 +110,23 @@ export class AnthropicRouter {
   }
 
   async *handleOpenAIStreamingRequest(request: OpenAIRequest, clientAuthHeader?: string): AsyncGenerator<string> {
-    const backend = this.backendSelector.selectForOpenAI(request);
-    yield* openaiStreamHandler(request, {
+    let processedRequest = request;
+    
+    // If last message has images, analyze them and replace with descriptions
+    if (openaiLastMessageHasImages(request) && this.config.visionBackend) {
+      processedRequest = await processOpenAIImagesInLastMessage(request, {
+        visionBackend: this.config.visionBackend,
+        clientAuthHeader,
+      });
+      // Remove images from history
+      processedRequest = removeOpenAIImagesFromHistory(processedRequest);
+    } else if (openaiHistoryHasImages(request)) {
+      // Just remove images from history
+      processedRequest = removeOpenAIImagesFromHistory(request);
+    }
+
+    const backend = this.backendSelector.selectForOpenAI(processedRequest);
+    yield* openaiStreamHandler(processedRequest, {
       backend,
       onTelemetry: (usage) => this.telemetry.record(usage),
       clientAuthHeader,
