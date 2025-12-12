@@ -75,4 +75,24 @@ describe('SSEEnricher', () => {
       expect(stats.hasToolCalls).toBe(false);
     });
   });
+
+  describe('edge cases', () => {
+    it('should handle non-JSON data lines', () => {
+      const input = 'event: ping\ndata: not-json\n\n';
+      const output = enricher.processChunk(input);
+      expect(output).toContain('event: ping');
+    });
+
+    it('should handle standalone non-empty lines', () => {
+      const input = ':comment line\n';
+      const output = enricher.processChunk(input);
+      expect(output).toContain(':comment line');
+    });
+
+    it('should skip empty lines', () => {
+      const input = '\n\n\n';
+      const output = enricher.processChunk(input);
+      expect(output).toBe('');
+    });
+  });
 });

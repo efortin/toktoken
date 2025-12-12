@@ -1,46 +1,28 @@
-// Anthropic API Types
+// Re-export Zod schemas and inferred types
+export {
+  AnthropicContentBlockSchema,
+  AnthropicMessageSchema,
+  AnthropicToolSchema,
+  AnthropicRequestSchema,
+  OpenAIRequestSchema,
+  TokenCountRequestSchema,
+  BackendConfigSchema,
+  TelemetryConfigSchema,
+  RouterConfigSchema,
+  type AnthropicContentBlock,
+  type AnthropicMessage,
+  type AnthropicTool,
+  type AnthropicRequest,
+  type OpenAIRequest,
+  type TokenCountRequest,
+  type BackendConfig,
+  type TelemetryConfig,
+  type RouterConfig,
+} from './schemas.js';
 
-export interface AnthropicMessage {
-  role: 'user' | 'assistant';
-  content: string | AnthropicContentBlock[];
-}
+import type { AnthropicContentBlock } from './schemas.js';
 
-export interface AnthropicContentBlock {
-  type: 'text' | 'image' | 'tool_use' | 'tool_result';
-  text?: string;
-  source?: {
-    type: 'base64';
-    media_type: string;
-    data: string;
-  };
-  id?: string;
-  name?: string;
-  input?: Record<string, unknown>;
-  tool_use_id?: string;
-  content?: string;
-}
-
-export interface AnthropicTool {
-  name: string;
-  description: string;
-  input_schema: Record<string, unknown>;
-}
-
-export interface AnthropicRequest {
-  model: string;
-  messages: AnthropicMessage[];
-  max_tokens: number;
-  system?: string;
-  tools?: AnthropicTool[];
-  tool_choice?: { type: string; name?: string };
-  stream?: boolean;
-  temperature?: number;
-  top_p?: number;
-  top_k?: number;
-  stop_sequences?: string[];
-  metadata?: Record<string, unknown>;
-}
-
+// Response types (not validated, just for typing responses)
 export interface AnthropicResponse {
   id: string;
   type: 'message';
@@ -72,31 +54,6 @@ export interface AnthropicStreamEvent {
   };
 }
 
-// Router Config
-export interface RouterConfig {
-  port: number;
-  host: string;
-  apiKey: string;
-  defaultBackend: BackendConfig;
-  visionBackend?: BackendConfig;
-  telemetry: TelemetryConfig;
-  logLevel: 'debug' | 'info' | 'warn' | 'error';
-}
-
-export interface BackendConfig {
-  name: string;
-  url: string;
-  apiKey: string;
-  model: string;
-  anthropicNative?: boolean;
-}
-
-export interface TelemetryConfig {
-  enabled: boolean;
-  endpoint?: string;
-}
-
-// Token Telemetry
 export interface TokenUsage {
   requestId: string;
   timestamp: Date;
@@ -107,22 +64,6 @@ export interface TokenUsage {
   latencyMs: number;
   hasToolCalls: boolean;
   hasVision: boolean;
-}
-
-// OpenAI Types (minimal for proxying)
-export interface OpenAIRequest {
-  model: string;
-  messages: {
-    role: string;
-    content: string | { type: string; text?: string; image_url?: { url: string } }[];
-    tool_calls?: { id: string; type: string; function: { name: string; arguments: string } }[];
-    tool_call_id?: string;
-  }[];
-  max_tokens?: number;
-  temperature?: number;
-  stream?: boolean;
-  tools?: { type: string; function: { name: string; description: string; parameters: Record<string, unknown> } }[];
-  tool_choice?: string | { type: string; function?: { name: string } };
 }
 
 export interface OpenAIResponse {

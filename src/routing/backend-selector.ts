@@ -1,8 +1,8 @@
 import type { AnthropicRequest, BackendConfig, OpenAIRequest, RouterConfig } from '../types/index.js';
 
 export class BackendSelector {
-  private defaultBackend: BackendConfig;
-  private visionBackend?: BackendConfig;
+  private readonly defaultBackend: BackendConfig;
+  private readonly visionBackend?: BackendConfig;
 
   constructor(config: RouterConfig) {
     this.defaultBackend = config.defaultBackend;

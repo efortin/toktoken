@@ -164,6 +164,108 @@ describe('Anthropic Handler', () => {
         })
       );
     });
+
+    it('should use OpenAI format when anthropicNative is false', async () => {
+      const openaiBackend: BackendConfig = {
+        ...mockBackend,
+        anthropicNative: false,
+      };
+
+      const mockOpenAIResponse = {
+        id: 'chatcmpl-123',
+        object: 'chat.completion',
+        created: 1234567890,
+        model: 'gpt-4',
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Hello from OpenAI!' },
+          finish_reason: 'stop',
+        }],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 5,
+          total_tokens: 15,
+        },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockOpenAIResponse,
+      });
+
+      const request: AnthropicRequest = {
+        model: 'claude-3',
+        messages: [{ role: 'user', content: 'Hi' }],
+        max_tokens: 100,
+      };
+
+      const result = await handleAnthropicRequest(request, { backend: openaiBackend });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:8000/v1/chat/completions',
+        expect.objectContaining({
+          method: 'POST',
+        })
+      );
+      expect(result.content[0].text).toBe('Hello from OpenAI!');
+    });
+
+    it('should throw on OpenAI backend error', async () => {
+      const openaiBackend: BackendConfig = {
+        ...mockBackend,
+        anthropicNative: false,
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: async () => 'OpenAI Error',
+      });
+
+      const request: AnthropicRequest = {
+        model: 'claude-3',
+        messages: [{ role: 'user', content: 'Hi' }],
+        max_tokens: 100,
+      };
+
+      await expect(
+        handleAnthropicRequest(request, { backend: openaiBackend })
+      ).rejects.toThrow('Backend error: 500 OpenAI Error');
+    });
+
+    it('should detect vision content in request', async () => {
+      const mockResponse = {
+        id: 'msg_123',
+        content: [{ type: 'text', text: 'I see an image' }],
+        usage: { input_tokens: 100, output_tokens: 10 },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      });
+
+      const onTelemetry = vi.fn();
+      const request: AnthropicRequest = {
+        model: 'claude-3',
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: 'What is this?' },
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'abc' } },
+          ],
+        }],
+        max_tokens: 100,
+      };
+
+      await handleAnthropicRequest(request, { backend: mockBackend, onTelemetry });
+
+      expect(onTelemetry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          hasVision: true,
+        })
+      );
+    });
   });
 
   describe('handleAnthropicStreamingRequest', () => {

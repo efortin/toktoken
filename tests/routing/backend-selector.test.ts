@@ -164,5 +164,43 @@ describe('BackendSelector', () => {
 
       expect(selector.hasOpenAIVision(request)).toBe(false);
     });
+
+    it('should return false for content array without image_url', () => {
+      const selector = new BackendSelector(mockConfig);
+      const request: OpenAIRequest = {
+        model: 'test',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Hello' },
+            ],
+          },
+        ],
+        max_tokens: 100,
+      };
+
+      expect(selector.hasOpenAIVision(request)).toBe(false);
+    });
+  });
+
+  describe('hasAnthropicVision', () => {
+    it('should return false for content array without images', () => {
+      const selector = new BackendSelector(mockConfig);
+      const request: AnthropicRequest = {
+        model: 'test',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Hello' },
+            ],
+          },
+        ],
+        max_tokens: 100,
+      };
+
+      expect(selector.hasAnthropicVision(request)).toBe(false);
+    });
   });
 });
