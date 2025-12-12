@@ -1,0 +1,177 @@
+name: CI
+
+on:
+  push:
+    branches: ['*']
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linter
+        run: npm run lint
+
+      - name: Type check
+        run: npx tsc -b src --noEmit
+
+      - name: Run tests with coverage
+        run: npm test -- --coverage
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage/coverage-final.json
+          fail_ci_if_error: false
+
+      - name: Archive coverage results
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+
+  build:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify build output
+        run: test -f dist/index.js
+
+      - name: Archive build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get version from package.json
+        id: pkg
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Generate Docker tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=branch
+            type=raw,value=${{ steps.pkg.outputs.version }},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      - name: Build and push Docker image
+        id: docker-build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+    outputs:
+      image: ghcr.io/${{ github.repository }}@${{ steps.docker-build.outputs.digest }}
+
+  deploy-test:
+    runs-on: ubuntu-latest
+    needs: docker
+    if: github.event_name == 'push'
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create k3s cluster
+        uses: AbsaOSS/k3d-action@v2
+        with:
+          cluster-name: test-cluster
+          args: >-
+            --agents 1
+            --wait
+
+      - name: Create namespace
+        run: kubectl create namespace vllm
+
+      - name: Create test secret
+        run: |
+          kubectl create secret generic anthropic-router-secret \
+            --namespace vllm \
+            --from-literal=api-key=test-api-key
+          kubectl create secret generic vllm-secret \
+            --namespace vllm \
+            --from-literal=api-key=test-vllm-key
+
+      - name: Deploy to k3s
+        run: |
+          # Update image in deployment
+          sed -i 's|ghcr.io/efortin/token-gate:latest|${{ needs.docker.outputs.image }}|' assets/k8s/deployment.yaml
+          kubectl apply -f assets/k8s/deployment.yaml
+
+      - name: Wait for deployment
+        run: |
+          kubectl rollout status deployment/anthropic-router -n vllm --timeout=120s
+
+      - name: Test health endpoint
+        run: |
+          kubectl port-forward -n vllm svc/anthropic-router 3456:3456 &
+          sleep 5
+          curl -f http://localhost:3456/health
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          kubectl logs -n vllm -l app=anthropic-router --tail=100
+
+      - name: Cleanup k3d cluster
+        if: always()
+        run: k3d cluster delete test-cluster || true
+
