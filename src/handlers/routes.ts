@@ -1,6 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { RouterConfig, AnthropicRequest, OpenAIRequest } from '../types/index.js';
 import type { AnthropicRouter } from '../router.js';
+import { StatusCodes, SSEHeaders } from '../enums.js';
 
 export interface RouteHandlerContext {
   router: AnthropicRouter;
@@ -14,11 +15,7 @@ export function createAnthropicMessagesHandler(ctx: RouteHandlerContext) {
 
     try {
       if (body.stream) {
-        reply.raw.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive',
-        });
+        reply.raw.writeHead(StatusCodes.OK, SSEHeaders);
         
         try {
           for await (const chunk of ctx.router.handleAnthropicStreamingRequest(body, authHeader)) {
@@ -41,7 +38,7 @@ export function createAnthropicMessagesHandler(ctx: RouteHandlerContext) {
     } catch (error: unknown) {
       request.log.error({ err: error }, 'Anthropic request failed');
       if (!reply.sent) {
-        reply.code(500);
+        reply.code(StatusCodes.INTERNAL_SERVER_ERROR);
         return { error: { type: 'api_error', message: error instanceof Error ? error.message : 'Unknown error' } };
       }
     }
@@ -55,11 +52,7 @@ export function createOpenAIChatHandler(ctx: RouteHandlerContext) {
 
     try {
       if (body.stream) {
-        reply.raw.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive',
-        });
+        reply.raw.writeHead(StatusCodes.OK, SSEHeaders);
         
         for await (const chunk of ctx.router.handleOpenAIStreamingRequest(body, authHeader)) {
           reply.raw.write(chunk);
@@ -74,7 +67,7 @@ export function createOpenAIChatHandler(ctx: RouteHandlerContext) {
     } catch (error: unknown) {
       request.log.error({ err: error }, 'OpenAI request failed');
       if (!reply.sent) {
-        reply.code(500);
+        reply.code(StatusCodes.INTERNAL_SERVER_ERROR);
         return { error: { message: error instanceof Error ? error.message : 'Unknown error', type: 'api_error' } };
       }
     }
