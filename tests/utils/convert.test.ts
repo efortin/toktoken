@@ -1,5 +1,5 @@
 import {describe, it, expect} from 'vitest';
-import {anthropicToOpenAI, openAIToAnthropic} from '../../src/utils/convert.js';
+import {anthropicToOpenAI, openAIToAnthropic, injectWebSearchPrompt} from '../../src/utils/convert.js';
 import type {AnthropicRequest, OpenAIResponse} from '../../src/types/index.js';
 
 describe('anthropicToOpenAI', () => {
@@ -222,5 +222,63 @@ describe('openAIToAnthropic', () => {
 
     expect(result.content).toEqual([{type: 'text', text: ''}]);
     expect(result.stop_reason).toBeNull();
+  });
+});
+
+describe('injectWebSearchPrompt', () => {
+  it('should inject prompt when no system exists', () => {
+    const req: AnthropicRequest = {
+      model: 'claude-3',
+      max_tokens: 1024,
+      messages: [{role: 'user', content: 'Hello'}],
+    };
+
+    const result = injectWebSearchPrompt(req);
+
+    expect(result.system).toContain('Web Search Guidelines');
+    expect(result.messages).toEqual(req.messages);
+  });
+
+  it('should append prompt to string system', () => {
+    const req: AnthropicRequest = {
+      model: 'claude-3',
+      max_tokens: 1024,
+      system: 'You are helpful',
+      messages: [{role: 'user', content: 'Hello'}],
+    };
+
+    const result = injectWebSearchPrompt(req);
+
+    expect(result.system).toContain('You are helpful');
+    expect(result.system).toContain('Web Search Guidelines');
+  });
+
+  it('should append prompt to array system', () => {
+    const req: AnthropicRequest = {
+      model: 'claude-3',
+      max_tokens: 1024,
+      system: [{type: 'text', text: 'Part 1'}, {type: 'text', text: 'Part 2'}],
+      messages: [{role: 'user', content: 'Hello'}],
+    };
+
+    const result = injectWebSearchPrompt(req);
+
+    expect(result.system).toContain('Part 1');
+    expect(result.system).toContain('Part 2');
+    expect(result.system).toContain('Web Search Guidelines');
+  });
+
+  it('should handle array system with empty text', () => {
+    const req: AnthropicRequest = {
+      model: 'claude-3',
+      max_tokens: 1024,
+      system: [{type: 'text', text: ''}, {type: 'text', text: 'Valid'}],
+      messages: [{role: 'user', content: 'Hello'}],
+    };
+
+    const result = injectWebSearchPrompt(req);
+
+    expect(result.system).toContain('Valid');
+    expect(result.system).toContain('Web Search Guidelines');
   });
 });
