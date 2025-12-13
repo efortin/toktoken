@@ -22,8 +22,9 @@ async function anthropicRoutes(app: FastifyInstance): Promise<void> {
     const body = request.body as AnthropicRequest;
     const authHeader = request.headers.authorization;
 
-    const useVision = hasAnthropicImages(body) && !!app.config.visionBackend;
-    const backend = useVision ? app.config.visionBackend! : app.config.defaultBackend;
+    const visionBackend = app.config.visionBackend;
+    const useVision = hasAnthropicImages(body) && !!visionBackend;
+    const backend = useVision && visionBackend ? visionBackend : app.config.defaultBackend;
 
     try {
       if (body.stream) {

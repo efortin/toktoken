@@ -20,8 +20,9 @@ async function openaiRoutes(app: FastifyInstance): Promise<void> {
     const body = request.body as OpenAIRequest;
     const authHeader = request.headers.authorization;
 
-    const useVision = hasOpenAIImages(body) && !!app.config.visionBackend;
-    const backend = useVision ? app.config.visionBackend! : app.config.defaultBackend;
+    const visionBackend = app.config.visionBackend;
+    const useVision = hasOpenAIImages(body) && !!visionBackend;
+    const backend = useVision && visionBackend ? visionBackend : app.config.defaultBackend;
 
     try {
       if (body.stream) {
