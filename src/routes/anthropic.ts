@@ -29,9 +29,9 @@ async function anthropicRoutes(app: FastifyInstance): Promise<void> {
         return handleStream(app, reply, body, backend, useVision, authHeader, user, startTime);
       }
 
-      // Vision backend uses OpenAI format
+      // Vision backend uses OpenAI format with vision prompt
       if (useVision) {
-        const openaiReq = anthropicToOpenAI(body);
+        const openaiReq = anthropicToOpenAI(body, {useVisionPrompt: true});
         const openaiRes = await callBackend<OpenAIResponse>(
           `${backend.url}/v1/chat/completions`,
           {...openaiReq, model: backend.model || body.model},
@@ -77,7 +77,7 @@ async function handleStream(
       ? `${backend.url}/v1/chat/completions`
       : `${backend.url}/v1/messages`;
     const reqBody = useVision
-      ? {...anthropicToOpenAI(body), model: backend.model || body.model, stream: true}
+      ? {...anthropicToOpenAI(body, {useVisionPrompt: true}), model: backend.model || body.model, stream: true}
       : {...body, model: backend.model || body.model, stream: true};
 
     for await (const chunk of streamBackend(endpoint, reqBody, getBackendAuth(backend, authHeader))) {

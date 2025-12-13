@@ -1,10 +1,21 @@
 import type {AnthropicRequest, AnthropicResponse, OpenAIRequest, OpenAIResponse} from '../types/index.js';
+import {VISION_SYSTEM_PROMPT} from '../prompts/vision.js';
+
+export interface ConvertOptions {
+  /** Add vision system prompt for image analysis. */
+  useVisionPrompt?: boolean;
+}
 
 /** Converts an Anthropic request to OpenAI format. */
-export function anthropicToOpenAI(req: AnthropicRequest): OpenAIRequest {
+export function anthropicToOpenAI(req: AnthropicRequest, options: ConvertOptions = {}): OpenAIRequest {
   const messages: OpenAIRequest['messages'] = [];
 
-  // Add system message if present
+  // Add vision system prompt if requested
+  if (options.useVisionPrompt) {
+    messages.push({role: 'system', content: VISION_SYSTEM_PROMPT});
+  }
+
+  // Add user system message if present
   if (req.system) {
     const systemText = typeof req.system === 'string' 
       ? req.system 
