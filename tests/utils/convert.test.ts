@@ -1,5 +1,5 @@
 import {describe, it, expect} from 'vitest';
-import {anthropicToOpenAI, openAIToAnthropic, injectWebSearchPrompt, parseMistralToolCalls, isMistralModel} from '../../src/utils/convert.js';
+import {anthropicToOpenAI, openAIToAnthropic, injectWebSearchPrompt, parseMistralToolCalls, isMistralModel, sanitizeToolName} from '../../src/utils/convert.js';
 import type {AnthropicRequest, OpenAIResponse} from '../../src/types/index.js';
 
 describe('anthropicToOpenAI', () => {
@@ -469,5 +469,39 @@ describe('parseMistralToolCalls', () => {
     expect(result).not.toBeNull();
     expect(result).toHaveLength(1);
     expect(result![0].name).toBe('Good');
+  });
+});
+
+describe('sanitizeToolName', () => {
+  it('should trim leading/trailing spaces', () => {
+    expect(sanitizeToolName(' Glob')).toBe('Glob');
+    expect(sanitizeToolName('Glob ')).toBe('Glob');
+    expect(sanitizeToolName('  Read  ')).toBe('Read');
+  });
+
+  it('should replace invalid characters with underscore', () => {
+    expect(sanitizeToolName('my tool')).toBe('my_tool');
+    expect(sanitizeToolName('tool.name')).toBe('tool_name');
+    expect(sanitizeToolName('tool:name')).toBe('tool_name');
+  });
+
+  it('should allow valid characters', () => {
+    expect(sanitizeToolName('my_tool')).toBe('my_tool');
+    expect(sanitizeToolName('my-tool')).toBe('my-tool');
+    expect(sanitizeToolName('MyTool123')).toBe('MyTool123');
+  });
+
+  it('should truncate to 64 chars', () => {
+    const longName = 'a'.repeat(100);
+    expect(sanitizeToolName(longName).length).toBe(64);
+  });
+
+  it('should handle empty string', () => {
+    expect(sanitizeToolName('')).toBe('unknown_tool');
+    expect(sanitizeToolName('   ')).toBe('unknown_tool');
+  });
+
+  it('should handle the specific " Glob" case from the error', () => {
+    expect(sanitizeToolName(' Glob')).toBe('Glob');
   });
 });

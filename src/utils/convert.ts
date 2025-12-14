@@ -66,6 +66,25 @@ export function isMistralModel(model: string): boolean {
          lowerModel.includes('codestral');
 }
 
+/**
+ * Sanitizes a tool/function name to be valid for OpenAI/Mistral API.
+ * Must be a-z, A-Z, 0-9, underscores and dashes, max 64 chars.
+ */
+export function sanitizeToolName(name: string): string {
+  // Trim whitespace
+  let sanitized = name.trim();
+  // Replace invalid characters with underscore
+  sanitized = sanitized.replace(/[^a-zA-Z0-9_-]/g, '_');
+  // Remove leading/trailing underscores from replacements
+  sanitized = sanitized.replace(/^_+|_+$/g, '');
+  // Truncate to 64 chars
+  if (sanitized.length > 64) {
+    sanitized = sanitized.slice(0, 64);
+  }
+  // If empty after sanitization, use a default
+  return sanitized || 'unknown_tool';
+}
+
 /** OpenAI stream chunk structure */
 interface OpenAIStreamChunk {
   id: string;
@@ -132,7 +151,8 @@ export function anthropicToOpenAI(req: AnthropicRequest, options: ConvertOptions
           id: normalizeToolId(block.id || ''),
           type: 'function' as const,
           function: {
-            name: block.name || '',
+            // Sanitize tool name: trim spaces, replace invalid chars with underscore
+            name: sanitizeToolName(block.name || ''),
             arguments: JSON.stringify(block.input || {}),
           },
         }));
