@@ -102,17 +102,36 @@ async function handleStream(
   user: string,
   startTime: number,
 ): Promise<void> {
-  reply.raw.writeHead(200, SSE_HEADERS);
-
+  // Strip images and normalize tool IDs for Mistral compatibility
+  const strippedBody = useVision ? body : stripOpenAIImages(body);
+  const requestBody = normalizeOpenAIToolIds(strippedBody);
+  
+  // Get the stream generator - this will throw on connection errors
+  let stream: AsyncGenerator<string>;
   try {
-    // Strip images and normalize tool IDs for Mistral compatibility
-    const strippedBody = useVision ? body : stripOpenAIImages(body);
-    const requestBody = normalizeOpenAIToolIds(strippedBody);
-    for await (const chunk of streamBackend(
+    stream = streamBackend(
       `${backend.url}/v1/chat/completions`,
       {...requestBody, model: backend.model || body.model, stream: true},
       getBackendAuth(backend, authHeader),
-    )) {
+    );
+    // Try to get first chunk to verify connection works
+    const firstResult = await stream.next();
+    if (firstResult.done) {
+      throw new Error('Empty response from backend');
+    }
+    // Connection works, now send 200 and stream
+    reply.raw.writeHead(200, SSE_HEADERS);
+    reply.raw.write(firstResult.value);
+  } catch (error) {
+    // Connection failed - return proper error status
+    recordMetrics(app, user, backend.model, startTime, 'error');
+    reply.code(StatusCodes.INTERNAL_SERVER_ERROR);
+    reply.send(createApiError(error instanceof Error ? error.message : 'Backend connection failed'));
+    return;
+  }
+
+  try {
+    for await (const chunk of stream) {
       reply.raw.write(chunk);
     }
     recordMetrics(app, user, backend.model, startTime, 'ok');
