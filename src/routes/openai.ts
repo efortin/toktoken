@@ -11,6 +11,7 @@ import {
   getBackendAuth,
   hasOpenAIImages,
   stripOpenAIImages,
+  normalizeOpenAIToolIds,
 } from '../utils/index.js';
 
 async function openaiRoutes(app: FastifyInstance): Promise<void> {
@@ -29,8 +30,9 @@ async function openaiRoutes(app: FastifyInstance): Promise<void> {
         return handleStream(app, reply, body, backend, useVision, authHeader, user, startTime);
       }
 
-      // Strip images from request for non-vision backend
-      const requestBody = useVision ? body : stripOpenAIImages(body);
+      // Strip images and normalize tool IDs for Mistral compatibility
+      const strippedBody = useVision ? body : stripOpenAIImages(body);
+      const requestBody = normalizeOpenAIToolIds(strippedBody);
       const result = await callBackend<OpenAIResponse>(
         `${backend.url}/v1/chat/completions`,
         {...requestBody, model: backend.model || body.model},
@@ -61,8 +63,9 @@ async function handleStream(
   reply.raw.writeHead(200, SSE_HEADERS);
 
   try {
-    // Strip images from request for non-vision backend
-    const requestBody = useVision ? body : stripOpenAIImages(body);
+    // Strip images and normalize tool IDs for Mistral compatibility
+    const strippedBody = useVision ? body : stripOpenAIImages(body);
+    const requestBody = normalizeOpenAIToolIds(strippedBody);
     for await (const chunk of streamBackend(
       `${backend.url}/v1/chat/completions`,
       {...requestBody, model: backend.model || body.model, stream: true},

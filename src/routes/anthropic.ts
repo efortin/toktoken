@@ -14,6 +14,7 @@ import {
   anthropicToOpenAI,
   openAIToAnthropic,
   injectWebSearchPrompt,
+  convertOpenAIStreamToAnthropic,
 } from '../utils/index.js';
 
 async function anthropicRoutes(app: FastifyInstance): Promise<void> {
@@ -32,27 +33,18 @@ async function anthropicRoutes(app: FastifyInstance): Promise<void> {
         return handleStream(app, reply, body, backend, useVision, authHeader, user, startTime);
       }
 
-      // Vision backend uses OpenAI format with vision prompt
-      if (useVision) {
-        const openaiReq = anthropicToOpenAI(body, {useVisionPrompt: true});
-        const openaiRes = await callBackend<OpenAIResponse>(
-          `${backend.url}/v1/chat/completions`,
-          {...openaiReq, model: backend.model || body.model},
-          getBackendAuth(backend, authHeader),
-        );
-        const result = openAIToAnthropic(openaiRes, backend.model || body.model);
-        recordMetrics(app, user, backend.model, startTime, 'ok', result.usage);
-        return result;
-      }
-
-      // Strip images and inject web search prompt for non-vision backend
-      const processedBody = injectWebSearchPrompt(stripAnthropicImages(body));
-      const result = await callBackend<AnthropicResponse>(
-        `${backend.url}/v1/messages`,
-        {...processedBody, model: backend.model || body.model},
+      // Always convert to OpenAI format for Mistral compatibility
+      const openaiReq = anthropicToOpenAI(
+        injectWebSearchPrompt(stripAnthropicImages(body)),
+        {useVisionPrompt: useVision},
+      );
+      request.log.debug({openaiMessages: JSON.stringify(openaiReq.messages)}, 'Converted to OpenAI format');
+      const openaiRes = await callBackend<OpenAIResponse>(
+        `${backend.url}/v1/chat/completions`,
+        {...openaiReq, model: backend.model || body.model},
         getBackendAuth(backend, authHeader),
       );
-
+      const result = openAIToAnthropic(openaiRes, backend.model || body.model);
       recordMetrics(app, user, backend.model, startTime, 'ok', result.usage);
       return result;
     } catch (error) {
@@ -77,15 +69,16 @@ async function handleStream(
   reply.raw.writeHead(200, SSE_HEADERS);
 
   try {
-    // Vision backend uses OpenAI format
-    const endpoint = useVision
-      ? `${backend.url}/v1/chat/completions`
-      : `${backend.url}/v1/messages`;
-    const reqBody = useVision
-      ? {...anthropicToOpenAI(body, {useVisionPrompt: true}), model: backend.model || body.model, stream: true}
-      : {...injectWebSearchPrompt(stripAnthropicImages(body)), model: backend.model || body.model, stream: true};
+    // Always use OpenAI format for Mistral compatibility
+    const openaiReq = anthropicToOpenAI(
+      injectWebSearchPrompt(stripAnthropicImages(body)),
+      {useVisionPrompt: useVision},
+    );
+    const reqBody = {...openaiReq, model: backend.model || body.model, stream: true};
 
-    for await (const chunk of streamBackend(endpoint, reqBody, getBackendAuth(backend, authHeader))) {
+    // Convert OpenAI stream to Anthropic format
+    const openaiStream = streamBackend(`${backend.url}/v1/chat/completions`, reqBody, getBackendAuth(backend, authHeader));
+    for await (const chunk of convertOpenAIStreamToAnthropic(openaiStream, backend.model || body.model)) {
       reply.raw.write(chunk);
     }
     recordMetrics(app, user, backend.model, startTime, 'ok');
