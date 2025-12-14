@@ -84,6 +84,7 @@ export function anthropicToOpenAI(req: AnthropicRequest, options: ConvertOptions
       const toolResultBlocks = msg.content.filter((b) => b.type === 'tool_result');
       if (msg.role === 'user' && toolResultBlocks.length > 0) {
         // Convert each tool_result to a separate tool message
+        // Note: Mistral does NOT allow 'user' after 'tool', so we skip text content here
         for (const block of toolResultBlocks) {
           const resultContent = typeof block.content === 'string' 
             ? block.content 
@@ -93,14 +94,6 @@ export function anthropicToOpenAI(req: AnthropicRequest, options: ConvertOptions
             tool_call_id: normalizeToolId(block.tool_use_id || ''),
             content: resultContent,
           });
-        }
-        // Also add any text content as a user message
-        const textBlocks = msg.content.filter((b) => b.type === 'text');
-        if (textBlocks.length > 0) {
-          const textContent = textBlocks.map((b) => b.text || '').join('');
-          if (textContent) {
-            messages.push({role: 'user', content: textContent});
-          }
         }
         continue;
       }
