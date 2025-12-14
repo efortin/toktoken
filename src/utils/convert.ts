@@ -511,6 +511,10 @@ export async function* convertOpenAIStreamToAnthropic(
   let textBuffer = '';
   let mistralToolCallsDetected = false;
   const checkMistral = isMistralModel(model);
+  
+  // Track finish state to send message_delta with usage at the end
+  let finalStopReason: string | null = null;
+  let messageStopped = false;
 
   // Send message_start event with estimated input tokens
   yield `event: message_start\ndata: ${JSON.stringify({
@@ -553,14 +557,15 @@ export async function* convertOpenAIStreamToAnthropic(
 
       const choice = chunk.choices?.[0];
       if (!choice) {
-        // Final usage-only chunk - we need to send message_delta with correct usage
-        // This is sent AFTER finish_reason chunk, so we emit it here
-        if (chunk.usage && chunk.usage.completion_tokens) {
+        // Final usage-only chunk - send the final message_delta with stop_reason and usage
+        if (chunk.usage && finalStopReason && !messageStopped) {
           yield `event: message_delta\ndata: ${JSON.stringify({
             type: 'message_delta',
-            delta: {},
-            usage: {output_tokens: chunk.usage.completion_tokens},
+            delta: {stop_reason: finalStopReason, stop_sequence: null},
+            usage: {output_tokens: chunk.usage.completion_tokens || outputTokens},
           })}\n\n`;
+          yield `event: message_stop\ndata: ${JSON.stringify({type: 'message_stop'})}\n\n`;
+          messageStopped = true;
         }
         continue;
       }
@@ -746,15 +751,8 @@ export async function* convertOpenAIStreamToAnthropic(
           }
         }
 
-        // Send message_delta with usage
-        yield `event: message_delta\ndata: ${JSON.stringify({
-          type: 'message_delta',
-          delta: {stop_reason: stopReason, stop_sequence: null},
-          usage: {output_tokens: outputTokens},
-        })}\n\n`;
-
-        // Send message_stop
-        yield `event: message_stop\ndata: ${JSON.stringify({type: 'message_stop'})}\n\n`;
+        // Store stop reason - we'll send message_delta when we get the usage chunk
+        finalStopReason = stopReason;
       }
     }
   }
