@@ -36,7 +36,8 @@ jobs:
       - name: Upload coverage reports
         uses: codecov/codecov-action@v4
         with:
-          file: ./coverage/coverage-final.json
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
           fail_ci_if_error: false
 
       - name: Archive coverage results
