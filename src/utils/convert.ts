@@ -420,14 +420,7 @@ export async function* convertOpenAIStreamToAnthropic(
 
       const choice = chunk.choices?.[0];
       if (!choice) {
-        // Final usage-only chunk - send message_delta with input_tokens
-        if (chunk.usage && inputTokens > 0) {
-          yield `event: message_delta\ndata: ${JSON.stringify({
-            type: 'message_delta',
-            delta: {},
-            usage: {input_tokens: inputTokens, output_tokens: outputTokens},
-          })}\n\n`;
-        }
+        // Final usage-only chunk - skip, we already sent estimated input_tokens in message_start
         continue;
       }
 
