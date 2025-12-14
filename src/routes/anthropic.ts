@@ -75,8 +75,8 @@ async function handleStream(
     const openaiReq = anthropicToOpenAI(processedBody, {useVisionPrompt: useVision});
     const reqBody = {...openaiReq, model: backend.model || body.model, stream: true};
 
-    // Estimate input tokens upfront for message_start event
-    const estimatedInputTokens = estimateRequestTokens(processedBody.messages);
+    // Estimate input tokens from full OpenAI request (includes system prompt)
+    const estimatedInputTokens = estimateRequestTokens(openaiReq.messages);
 
     // Convert OpenAI stream to Anthropic format
     const openaiStream = streamBackend(`${backend.url}/v1/chat/completions`, reqBody, getBackendAuth(backend, authHeader));

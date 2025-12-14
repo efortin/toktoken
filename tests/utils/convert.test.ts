@@ -1,6 +1,6 @@
 import {describe, it, expect} from 'vitest';
-import {anthropicToOpenAI, openAIToAnthropic, injectWebSearchPrompt} from '../../src/utils/convert.js';
-import type {AnthropicRequest, OpenAIResponse} from '../../src/types/index.js';
+import {anthropicToOpenAI, openAIToAnthropic, injectWebSearchPrompt, normalizeOpenAIToolIds} from '../../src/utils/convert.js';
+import type {AnthropicRequest, OpenAIResponse, OpenAIRequest} from '../../src/types/index.js';
 
 describe('anthropicToOpenAI', () => {
   it('should convert simple text message', () => {
@@ -144,6 +144,109 @@ describe('anthropicToOpenAI', () => {
     const result = anthropicToOpenAI(req);
 
     expect(result.stream).toBe(true);
+  });
+
+  it('should convert tool_use blocks to OpenAI tool_calls', () => {
+    const req: AnthropicRequest = {
+      model: 'claude-3',
+      max_tokens: 1024,
+      messages: [
+        {role: 'user', content: 'List files'},
+        {role: 'assistant', content: [{
+          type: 'tool_use',
+          id: 'toolu_abc123',
+          name: 'bash',
+          input: {command: 'ls'},
+        }]},
+      ],
+    };
+
+    const result = anthropicToOpenAI(req);
+
+    expect(result.messages).toHaveLength(2);
+    expect(result.messages[1].role).toBe('assistant');
+    const toolCalls = (result.messages[1] as {tool_calls?: unknown[]}).tool_calls;
+    expect(toolCalls).toHaveLength(1);
+    expect((toolCalls as {id: string; function: {name: string}}[])[0].function.name).toBe('bash');
+  });
+
+  it('should convert tool_result blocks to OpenAI tool messages', () => {
+    const req: AnthropicRequest = {
+      model: 'claude-3',
+      max_tokens: 1024,
+      messages: [
+        {role: 'user', content: 'List files'},
+        {role: 'assistant', content: [{
+          type: 'tool_use',
+          id: 'toolu_abc123',
+          name: 'bash',
+          input: {command: 'ls'},
+        }]},
+        {role: 'user', content: [{
+          type: 'tool_result',
+          tool_use_id: 'toolu_abc123',
+          content: 'file1.txt\nfile2.txt',
+        }]},
+      ],
+    };
+
+    const result = anthropicToOpenAI(req);
+
+    expect(result.messages).toHaveLength(3);
+    expect(result.messages[2].role).toBe('tool');
+  });
+
+  it('should NOT add user message after tool message (Mistral constraint)', () => {
+    const req: AnthropicRequest = {
+      model: 'claude-3',
+      max_tokens: 1024,
+      messages: [
+        {role: 'user', content: 'List files'},
+        {role: 'assistant', content: [{
+          type: 'tool_use',
+          id: 'toolu_abc123',
+          name: 'bash',
+          input: {command: 'ls'},
+        }]},
+        {role: 'user', content: [
+          {type: 'tool_result', tool_use_id: 'toolu_abc123', content: 'file1.txt'},
+          {type: 'text', text: 'Now analyze this'},
+        ]},
+      ],
+    };
+
+    const result = anthropicToOpenAI(req);
+
+    // Should have: user, assistant (tool_calls), tool
+    // Should NOT have a 'user' message after 'tool' (Mistral rejects this)
+    const roles = result.messages.map(m => m.role);
+    
+    // Find the index of 'tool' message
+    const toolIndex = roles.indexOf('tool');
+    expect(toolIndex).toBeGreaterThan(-1);
+    
+    // No 'user' should come after 'tool'
+    const afterTool = roles.slice(toolIndex + 1);
+    expect(afterTool.includes('user')).toBe(false);
+  });
+
+  it('should convert Anthropic tools to OpenAI format', () => {
+    const req: AnthropicRequest = {
+      model: 'claude-3',
+      max_tokens: 1024,
+      messages: [{role: 'user', content: 'Hi'}],
+      tools: [{
+        name: 'calculator',
+        description: 'Perform math',
+        input_schema: {type: 'object', properties: {expr: {type: 'string'}}},
+      }],
+    };
+
+    const result = anthropicToOpenAI(req);
+
+    expect(result.tools).toHaveLength(1);
+    expect(result.tools![0].type).toBe('function');
+    expect(result.tools![0].function.name).toBe('calculator');
   });
 });
 
