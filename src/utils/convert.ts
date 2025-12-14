@@ -545,12 +545,23 @@ export async function* convertOpenAIStreamToAnthropic(
       // Track usage if provided (may come in final chunk with empty choices)
       if (chunk.usage) {
         inputTokens = chunk.usage.prompt_tokens || inputTokens;
-        outputTokens = chunk.usage.completion_tokens || outputTokens;
+        // Use real completion_tokens from vLLM instead of our chunk count
+        if (chunk.usage.completion_tokens) {
+          outputTokens = chunk.usage.completion_tokens;
+        }
       }
 
       const choice = chunk.choices?.[0];
       if (!choice) {
-        // Final usage-only chunk - skip, we already sent estimated input_tokens in message_start
+        // Final usage-only chunk - we need to send message_delta with correct usage
+        // This is sent AFTER finish_reason chunk, so we emit it here
+        if (chunk.usage && chunk.usage.completion_tokens) {
+          yield `event: message_delta\ndata: ${JSON.stringify({
+            type: 'message_delta',
+            delta: {},
+            usage: {output_tokens: chunk.usage.completion_tokens},
+          })}\n\n`;
+        }
         continue;
       }
 
