@@ -53,11 +53,15 @@ async function openaiRoutes(app: FastifyInstance): Promise<void> {
     const transformed = transform(useVision)(body);
     const payload = {...transformed, model: backend.model || body.model};
 
+    req.log.debug({body, payload, useVision, transformed}, 'Processing OpenAI request');
+
     try {
       if (body.stream) return stream(reply, baseUrl, payload, auth);
-      return await callBackend<OpenAIResponse>(`${baseUrl}/v1/chat/completions`, payload, auth);
+      const res = await callBackend<OpenAIResponse>(`${baseUrl}/v1/chat/completions`, payload, auth);
+      req.log.debug({response: res}, 'Received response from backend');
+      return res;
     } catch (e) {
-      req.log.error({err: e}, 'Request failed');
+      req.log.error({err: e, body}, 'Request failed');
       reply.code(StatusCodes.INTERNAL_SERVER_ERROR);
       return createApiError(e instanceof Error ? e.message : 'Unknown error');
     }
@@ -78,11 +82,15 @@ const handler = (app: FastifyInstance, useTransform: boolean) =>
       ? {...transform(false)(body), model: backend.model || body.model}
       : {...body, model: backend.model || (body as {model?: string}).model};
 
+    req.log.debug({body, payload, useTransform}, 'Processing completions request');
+
     try {
       if ((body as {stream?: boolean}).stream) return stream(reply, baseUrl, payload, auth);
-      return await callBackend(`${baseUrl}/v1/completions`, payload, auth);
+      const res = await callBackend(`${baseUrl}/v1/completions`, payload, auth);
+      req.log.debug({response: res}, 'Received response from backend');
+      return res;
     } catch (e) {
-      req.log.error({err: e}, 'Request failed');
+      req.log.error({err: e, body}, 'Request failed');
       reply.code(StatusCodes.INTERNAL_SERVER_ERROR);
       return createApiError(e instanceof Error ? e.message : 'Unknown error');
     }

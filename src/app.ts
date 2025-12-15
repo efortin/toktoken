@@ -16,21 +16,21 @@ declare module 'fastify' {
 
 export interface BuildAppOptions {
   config: AppConfig;
-  logger?: boolean | object;
+  fastifyLogger?: boolean | object;
 }
 
 /** Creates and configures the Fastify application. */
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
-  const {config, logger = true} = options;
+  const {config, fastifyLogger = true} = options;
 
   const app = Fastify({
     logger:
-      logger
+      fastifyLogger
         ? {
             level: config.logLevel,
             transport: {target: 'pino-pretty', options: {colorize: true}},
           }
-        : logger,
+        : fastifyLogger,
     bodyLimit: 50 * 1024 * 1024, // 50MB for base64 images
   });
 

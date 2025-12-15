@@ -56,12 +56,15 @@ async function anthropicRoutes(app: FastifyInstance): Promise<void> {
     // Pipeline: Anthropic → OpenAI → vLLM
     const payload = {...toOpenAI(body, useVision), model};
 
+    req.log.debug({body, payload, useVision}, 'Processing Anthropic request');
+
     try {
       if (body.stream) return streamAnthropic(reply, baseUrl, payload, auth, model);
       const res = await callBackend<OpenAIResponse>(`${baseUrl}/v1/chat/completions`, payload, auth);
+      req.log.debug({response: res}, 'Received response from backend');
       return toAnthropic(res, model);
     } catch (e) {
-      req.log.error({err: e}, 'Request failed');
+      req.log.error({err: e, body}, 'Request failed');
       reply.code(StatusCodes.INTERNAL_SERVER_ERROR);
       return createApiError(e instanceof Error ? e.message : 'Unknown error');
     }
