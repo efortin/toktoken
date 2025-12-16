@@ -417,6 +417,411 @@ async function testAnthropicTokenCounting(): Promise<void> {
 }
 
 // ============================================================================
+// Prompt Size Tests (Small / Medium / Big)
+// ============================================================================
+
+async function testSmallPrompt(): Promise<void> {
+  // ~10 tokens input
+  const response = await fetch(`${BACKEND_URL}/v1/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'devstral-small-2-24b',
+      messages: [{role: 'user', content: 'Hi'}],
+      max_tokens: 10,
+    }),
+  });
+
+  assert(response.ok, `HTTP ${response.status}`);
+  const data = await response.json();
+  assert(data.content?.[0], 'Missing content');
+}
+
+async function testMediumPrompt(): Promise<void> {
+  // ~500 tokens input
+  const longText = `Please analyze the following code and provide suggestions for improvement:
+
+\`\`\`typescript
+function processData(items: any[]) {
+  let result = [];
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].active == true) {
+      let newItem = {
+        id: items[i].id,
+        name: items[i].name.toUpperCase(),
+        value: items[i].value * 2
+      };
+      result.push(newItem);
+    }
+  }
+  return result;
+}
+
+async function fetchUsers() {
+  const response = await fetch('/api/users');
+  const data = response.json();
+  return data;
+}
+
+class UserManager {
+  users = [];
+  
+  addUser(user) {
+    this.users.push(user);
+  }
+  
+  removeUser(id) {
+    for (let i = 0; i < this.users.length; i++) {
+      if (this.users[i].id == id) {
+        this.users.splice(i, 1);
+        break;
+      }
+    }
+  }
+  
+  findUser(id) {
+    for (let user of this.users) {
+      if (user.id == id) return user;
+    }
+    return null;
+  }
+}
+\`\`\`
+
+Focus on: type safety, modern syntax, and best practices.`;
+
+  const response = await fetch(`${BACKEND_URL}/v1/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'devstral-small-2-24b',
+      messages: [{role: 'user', content: longText}],
+      max_tokens: 500,
+    }),
+  });
+
+  assert(response.ok, `HTTP ${response.status}`);
+  const data = await response.json();
+  assert(data.content?.[0], 'Missing content');
+  assert(data.usage?.input_tokens > 200, `Expected >200 input tokens, got ${data.usage?.input_tokens}`);
+}
+
+async function testBigPrompt(): Promise<void> {
+  // ~2000 tokens input
+  const codeBlocks = Array(10).fill(null).map((_, i) => `
+// Module ${i + 1}
+export interface Entity${i} {
+  id: string;
+  name: string;
+  createdAt: Date;
+  updatedAt: Date;
+  metadata: Record<string, unknown>;
+}
+
+export class Service${i} {
+  private cache = new Map<string, Entity${i}>();
+  
+  async findById(id: string): Promise<Entity${i} | null> {
+    if (this.cache.has(id)) return this.cache.get(id)!;
+    const data = await this.fetchFromDB(id);
+    if (data) this.cache.set(id, data);
+    return data;
+  }
+  
+  private async fetchFromDB(id: string): Promise<Entity${i} | null> {
+    // Simulate DB fetch
+    return null;
+  }
+  
+  async create(entity: Omit<Entity${i}, 'id'>): Promise<Entity${i}> {
+    const id = crypto.randomUUID();
+    const newEntity = { ...entity, id } as Entity${i};
+    this.cache.set(id, newEntity);
+    return newEntity;
+  }
+}
+`).join('\n');
+
+  const response = await fetch(`${BACKEND_URL}/v1/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'devstral-small-2-24b',
+      messages: [{role: 'user', content: `Review this codebase and identify patterns:\n${codeBlocks}\n\nSummarize in 50 words.`}],
+      max_tokens: 200,
+    }),
+  });
+
+  assert(response.ok, `HTTP ${response.status}`);
+  const data = await response.json();
+  assert(data.content?.[0], 'Missing content');
+  assert(data.usage?.input_tokens > 1000, `Expected >1000 input tokens, got ${data.usage?.input_tokens}`);
+}
+
+// ============================================================================
+// Parallel Request Tests
+// ============================================================================
+
+async function testParallelSmallRequests(): Promise<void> {
+  const numRequests = 5;
+  const startTime = Date.now();
+  
+  const requests = Array(numRequests).fill(null).map((_, i) => 
+    fetch(`${BACKEND_URL}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'devstral-small-2-24b',
+        messages: [{role: 'user', content: `Say the number ${i + 1}`}],
+        max_tokens: 10,
+      }),
+    })
+  );
+
+  const responses = await Promise.all(requests);
+  const elapsed = Date.now() - startTime;
+  
+  let successCount = 0;
+  for (const response of responses) {
+    if (response.ok) {
+      const data = await response.json();
+      if (data.content?.[0]) successCount++;
+    }
+  }
+  
+  assert(successCount === numRequests, `Only ${successCount}/${numRequests} requests succeeded`);
+  console.log(`    (${numRequests} parallel requests in ${elapsed}ms)`);
+}
+
+async function testParallelMixedRequests(): Promise<void> {
+  const startTime = Date.now();
+  
+  // Mix of small and medium requests
+  const requests = [
+    // Small requests
+    fetch(`${BACKEND_URL}/v1/messages`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'x-api-key': API_KEY, 'anthropic-version': '2023-06-01'},
+      body: JSON.stringify({model: 'devstral-small-2-24b', messages: [{role: 'user', content: 'Hi'}], max_tokens: 10}),
+    }),
+    fetch(`${BACKEND_URL}/v1/messages`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'x-api-key': API_KEY, 'anthropic-version': '2023-06-01'},
+      body: JSON.stringify({model: 'devstral-small-2-24b', messages: [{role: 'user', content: 'Hello'}], max_tokens: 10}),
+    }),
+    // Medium request
+    fetch(`${BACKEND_URL}/v1/messages`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'x-api-key': API_KEY, 'anthropic-version': '2023-06-01'},
+      body: JSON.stringify({
+        model: 'devstral-small-2-24b',
+        messages: [{role: 'user', content: 'Explain the difference between let, const, and var in JavaScript in 3 sentences.'}],
+        max_tokens: 150,
+      }),
+    }),
+    // OpenAI format request
+    fetch(`${BACKEND_URL}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}`},
+      body: JSON.stringify({model: 'devstral-small-2-24b', messages: [{role: 'user', content: 'Say yes'}], max_tokens: 5}),
+    }),
+  ];
+
+  const responses = await Promise.all(requests);
+  const elapsed = Date.now() - startTime;
+  
+  let successCount = 0;
+  for (const response of responses) {
+    if (response.ok) successCount++;
+  }
+  
+  assert(successCount === requests.length, `Only ${successCount}/${requests.length} requests succeeded`);
+  console.log(`    (${requests.length} mixed parallel requests in ${elapsed}ms)`);
+}
+
+async function testParallelStreamingRequests(): Promise<void> {
+  const numRequests = 3;
+  const startTime = Date.now();
+  
+  const requests = Array(numRequests).fill(null).map((_, i) => 
+    fetch(`${BACKEND_URL}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'devstral-small-2-24b',
+        messages: [{role: 'user', content: `Count from 1 to ${i + 3}`}],
+        max_tokens: 50,
+        stream: true,
+      }),
+    })
+  );
+
+  const responses = await Promise.all(requests);
+  
+  // Consume all streams in parallel
+  const streamPromises = responses.map(async (response, i) => {
+    assert(response.ok, `Request ${i} failed: HTTP ${response.status}`);
+    assert(response.body, `Request ${i} missing body`);
+    
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let hasData = false;
+    
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value);
+      if (chunk.includes('data:')) hasData = true;
+    }
+    
+    return hasData;
+  });
+  
+  const results = await Promise.all(streamPromises);
+  const elapsed = Date.now() - startTime;
+  
+  const successCount = results.filter(r => r).length;
+  assert(successCount === numRequests, `Only ${successCount}/${numRequests} streams received data`);
+  console.log(`    (${numRequests} parallel streaming requests in ${elapsed}ms)`);
+}
+
+// ============================================================================
+// Token Count Variation Tests
+// ============================================================================
+
+async function testMaxTokens10(): Promise<void> {
+  const response = await fetch(`${BACKEND_URL}/v1/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'devstral-small-2-24b',
+      messages: [{role: 'user', content: 'Write a long story about a dragon'}],
+      max_tokens: 10,
+    }),
+  });
+
+  assert(response.ok, `HTTP ${response.status}`);
+  const data = await response.json();
+  assert(data.usage?.output_tokens <= 15, `Expected <=15 output tokens, got ${data.usage?.output_tokens}`);
+}
+
+async function testMaxTokens100(): Promise<void> {
+  const response = await fetch(`${BACKEND_URL}/v1/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'devstral-small-2-24b',
+      messages: [{role: 'user', content: 'Write a haiku about programming'}],
+      max_tokens: 100,
+    }),
+  });
+
+  assert(response.ok, `HTTP ${response.status}`);
+  const data = await response.json();
+  assert(data.content?.[0], 'Missing content');
+  assert(data.usage?.output_tokens > 5, `Expected >5 output tokens, got ${data.usage?.output_tokens}`);
+  assert(data.usage?.output_tokens <= 105, `Expected <=105 output tokens, got ${data.usage?.output_tokens}`);
+}
+
+async function testMaxTokens500(): Promise<void> {
+  const response = await fetch(`${BACKEND_URL}/v1/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'devstral-small-2-24b',
+      messages: [{role: 'user', content: 'Explain recursion with an example in Python'}],
+      max_tokens: 500,
+    }),
+  });
+
+  assert(response.ok, `HTTP ${response.status}`);
+  const data = await response.json();
+  assert(data.content?.[0], 'Missing content');
+  // Should have substantial output for this topic
+  assert(data.usage?.output_tokens > 50, `Expected >50 output tokens, got ${data.usage?.output_tokens}`);
+}
+
+async function testMaxTokens1000Streaming(): Promise<void> {
+  const response = await fetch(`${BACKEND_URL}/v1/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'devstral-small-2-24b',
+      messages: [{role: 'user', content: 'Write a detailed explanation of how async/await works in JavaScript'}],
+      max_tokens: 1000,
+      stream: true,
+    }),
+  });
+
+  assert(response.ok, `HTTP ${response.status}`);
+  assert(response.body, 'Missing response body');
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let chunkCount = 0;
+  let outputTokens = 0;
+
+  while (true) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value);
+    chunkCount++;
+    
+    // Extract output tokens from message_delta
+    const lines = chunk.split('\n');
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      try {
+        const data = JSON.parse(line.slice(6));
+        if (data.usage?.output_tokens) {
+          outputTokens = data.usage.output_tokens;
+        }
+      } catch { /* ignore */ }
+    }
+  }
+
+  assert(chunkCount > 5, `Expected >5 chunks, got ${chunkCount}`);
+  assert(outputTokens > 100, `Expected >100 output tokens, got ${outputTokens}`);
+  console.log(`    (${chunkCount} chunks, ${outputTokens} output tokens)`);
+}
+
+// ============================================================================
 // Direct vLLM Tests (bypass proxy)
 // ============================================================================
 
@@ -458,6 +863,22 @@ async function main(): Promise<void> {
   await runTest('Anthropic: Multiple tool calls', testAnthropicMultipleToolCalls);
   await runTest('Anthropic: Streaming', testAnthropicStreaming);
   await runTest('Anthropic: Token counting (100 words)', testAnthropicTokenCounting);
+
+  console.log('\n📦 Prompt Size Tests\n');
+  await runTest('Prompt: Small (~10 tokens)', testSmallPrompt);
+  await runTest('Prompt: Medium (~500 tokens)', testMediumPrompt);
+  await runTest('Prompt: Big (~2000 tokens)', testBigPrompt);
+
+  console.log('\n📦 Parallel Request Tests\n');
+  await runTest('Parallel: 5 small requests', testParallelSmallRequests);
+  await runTest('Parallel: Mixed requests (Anthropic + OpenAI)', testParallelMixedRequests);
+  await runTest('Parallel: 3 streaming requests', testParallelStreamingRequests);
+
+  console.log('\n📦 Token Count Variation Tests\n');
+  await runTest('MaxTokens: 10 (truncated)', testMaxTokens10);
+  await runTest('MaxTokens: 100 (short)', testMaxTokens100);
+  await runTest('MaxTokens: 500 (medium)', testMaxTokens500);
+  await runTest('MaxTokens: 1000 streaming', testMaxTokens1000Streaming);
 
   console.log('\n📦 Direct vLLM Tests\n');
   await runTest('vLLM: List models', testDirectVLLMModels);
