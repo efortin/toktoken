@@ -43,7 +43,7 @@ async function anthropicRoutes(app: FastifyInstance): Promise<void> {
     // Debug: log tool names
     const tools = (rawBody as { tools?: { name: string }[] }).tools;
     if (tools && tools.length > 0) {
-      req.log.info({ toolNames: tools.map(t => t.name) }, 'Tools in request');
+      req.log.debug({ toolNames: tools.map(t => t.name) }, 'Tools in request');
     }
     
     // Remove unsupported tools (WebSearch - use MCP brave-search instead)
@@ -66,8 +66,7 @@ async function anthropicRoutes(app: FastifyInstance): Promise<void> {
       (anthropicBody as { tools?: unknown[] }).tools as Parameters<typeof calculateTokenCount>[2],
     );
     
-    // Debug: log token count details
-    req.log.info({
+    req.log.debug({
       calculatedInputTokens,
       messageCount: anthropicBody.messages?.length,
       hasSystem: !!anthropicBody.system,
@@ -130,7 +129,6 @@ const streamViaOpenAI = async (
   reply.raw.writeHead(200, SSE_HEADERS);
 
   try {
-    console.log('[stream] Starting stream to vLLM...');
     const openaiStream = streamBackend(
       `${baseUrl}/v1/chat/completions`,
       { ...openaiBody, stream: true, stream_options: { include_usage: true } },
@@ -138,18 +136,11 @@ const streamViaOpenAI = async (
     );
     
     // Convert OpenAI SSE stream to Anthropic SSE format
-    console.log('[stream] Converting OpenAI stream to Anthropic format...');
     const anthropicStream = convertOpenAIStreamToAnthropic(openaiStream, model, calculatedInputTokens);
     
-    let chunkCount = 0;
     for await (const chunk of anthropicStream) {
-      chunkCount++;
-      if (chunkCount <= 3 || chunkCount % 50 === 0) {
-        console.log(`[stream] Writing chunk #${chunkCount}, len=${chunk.length}`);
-      }
       reply.raw.write(chunk);
     }
-    console.log(`[stream] Stream complete, ${chunkCount} chunks written`);
   } catch (e) {
     reply.raw.write(formatSseError(e));
   }
