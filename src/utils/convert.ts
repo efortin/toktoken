@@ -1,5 +1,4 @@
 import type {AnthropicRequest, AnthropicResponse, OpenAIRequest, OpenAIResponse} from '../types/index.js';
-import {WEB_SEARCH_SYSTEM_PROMPT} from '../prompts/web-search.js';
 
 /**
  * Sanitizes a tool/function name to be valid for OpenAI/Mistral API.
