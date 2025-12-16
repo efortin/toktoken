@@ -73,30 +73,12 @@ export async function* streamBackend(
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
-  let buffer = '';
 
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      const chunk = decoder.decode(value, { stream: true });
-      buffer += chunk;
-
-      // Debug: log important SSE events
-      if (chunk.includes('message_stop') || chunk.includes('message_delta')) {
-        // Extract the event data for logging
-        const lines = buffer.split('\n');
-        for (const line of lines) {
-          if (line.startsWith('data: ') && (line.includes('message_stop') || line.includes('message_delta'))) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              console.log('[stream] SSE event:', JSON.stringify(data));
-            } catch { /* ignore parse errors */ }
-          }
-        }
-      }
-
-      yield chunk;
+      yield decoder.decode(value, { stream: true });
     }
   } finally {
     reader.releaseLock();
