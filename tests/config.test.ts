@@ -1,26 +1,32 @@
-import {describe, it, expect, beforeEach, afterEach} from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
-import {loadConfig} from '../src/config.js';
+import { loadConfig } from '../src/config.js';
 
 describe('loadConfig', () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
-    process.env = {...originalEnv};
+    process.env = { ...originalEnv };
   });
 
   afterEach(() => {
     process.env = originalEnv;
   });
 
-  it('should return default values when no env vars are set', () => {
+  it('should throw when VLLM_URL is not set', () => {
+    delete process.env.VLLM_URL;
+
+    expect(() => loadConfig()).toThrow();
+  });
+
+  it('should return default values with required VLLM_URL', () => {
     delete process.env.PORT;
     delete process.env.HOST;
     delete process.env.API_KEY;
-    delete process.env.VLLM_URL;
     delete process.env.VLLM_API_KEY;
     delete process.env.VLLM_MODEL;
     delete process.env.LOG_LEVEL;
+    process.env.VLLM_URL = 'http://localhost:8000';
 
     const config = loadConfig();
 
@@ -56,6 +62,7 @@ describe('loadConfig', () => {
 
   it('should parse port as integer', () => {
     process.env.PORT = '9999';
+    process.env.VLLM_URL = 'http://localhost:8000';
 
     const config = loadConfig();
 

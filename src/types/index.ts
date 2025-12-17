@@ -90,11 +90,10 @@ import { z } from 'zod';
 /** Backend configuration schema. */
 export const BackendConfigSchema = z.object({
   name: z.string().default('vllm'),
-  url: z.string().default('http://localhost:8000'),
+  url: z.string().min(1, 'VLLM_URL is required'),
   apiKey: z.string().default(''),
   model: z.string().default(''),
-  /** Optional temperature override (0.0-2.0). If set, overrides client temperature. */
-  temperature: z.coerce.number().min(0).max(2).optional(),
+  temperature: z.coerce.number().min(0).max(1).optional(),
 });
 
 /** Router configuration schema (loaded from environment). */
