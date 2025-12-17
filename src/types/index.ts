@@ -1,3 +1,11 @@
+// =============================================================================
+// Anthropic Types
+// =============================================================================
+// Note: Official SDK types available at '@anthropic-ai/sdk/resources/messages'
+// We use custom types here because:
+// 1. SDK response types require fields vLLM doesn't provide (citations, cache_creation)
+// 2. We need flexible types for proxy transformations
+
 /** Anthropic message content block. */
 export interface AnthropicContentBlock {
   type: string;
@@ -39,7 +47,6 @@ export interface AnthropicResponse {
     output_tokens: number;
   };
 }
-
 /** OpenAI message content. */
 export interface OpenAIMessageContent {
   type: string;
