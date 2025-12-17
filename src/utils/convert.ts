@@ -1,4 +1,4 @@
-import type {AnthropicRequest, AnthropicResponse, OpenAIRequest, OpenAIResponse} from '../types/index.js';
+import type { AnthropicRequest, AnthropicResponse, OpenAIRequest, OpenAIResponse } from '../types/index.js';
 
 /**
  * Sanitizes a tool/function name to be valid for OpenAI/Mistral API.
@@ -29,7 +29,7 @@ interface OpenAIStreamChunk {
         index: number;
         id?: string;
         type?: string;
-        function?: {name?: string; arguments?: string};
+        function?: { name?: string; arguments?: string };
       }[];
     };
     finish_reason: string | null;
@@ -68,15 +68,15 @@ export function anthropicToOpenAI(req: AnthropicRequest): OpenAIRequest {
   const messages: OpenAIRequest['messages'] = [];
 
   if (req.system) {
-    const systemText = typeof req.system === 'string' 
-      ? req.system 
+    const systemText = typeof req.system === 'string'
+      ? req.system
       : req.system.map(s => s.text).join('\n');
-    messages.push({role: 'system', content: systemText});
+    messages.push({ role: 'system', content: systemText });
   }
 
   for (const msg of req.messages) {
     if (typeof msg.content === 'string') {
-      messages.push({role: msg.role, content: msg.content});
+      messages.push({ role: msg.role, content: msg.content });
     } else {
       const toolUseBlocks = msg.content.filter((b) => b.type === 'tool_use');
       if (msg.role === 'assistant' && toolUseBlocks.length > 0) {
@@ -103,8 +103,8 @@ export function anthropicToOpenAI(req: AnthropicRequest): OpenAIRequest {
       const toolResultBlocks = msg.content.filter((b) => b.type === 'tool_result');
       if (msg.role === 'user' && toolResultBlocks.length > 0) {
         for (const block of toolResultBlocks) {
-          const resultContent = typeof block.content === 'string' 
-            ? block.content 
+          const resultContent = typeof block.content === 'string'
+            ? block.content
             : JSON.stringify(block.content);
           messages.push({
             role: 'tool',
@@ -117,22 +117,22 @@ export function anthropicToOpenAI(req: AnthropicRequest): OpenAIRequest {
 
       const parts = msg.content.map((block) => {
         if (block.type === 'text') {
-          return {type: 'text', text: block.text || ''};
+          return { type: 'text', text: block.text || '' };
         }
         if (block.type === 'image') {
-          const source = block.source as {type: string; media_type: string; data: string};
+          const source = block.source as { type: string; media_type: string; data: string };
           return {
             type: 'image_url',
-            image_url: {url: `data:${source.media_type};base64,${source.data}`},
+            image_url: { url: `data:${source.media_type};base64,${source.data}` },
           };
         }
-        return {type: 'text', text: JSON.stringify(block)};
+        return { type: 'text', text: JSON.stringify(block) };
       });
-      messages.push({role: msg.role, content: parts});
+      messages.push({ role: msg.role, content: parts });
     }
   }
 
-  const tools = req.tools as {name: string; description: string; input_schema: unknown}[] | undefined;
+  const tools = req.tools as { name: string; description: string; input_schema: unknown }[] | undefined;
   const openaiTools = tools?.map((tool) => ({
     type: 'function' as const,
     function: {
@@ -144,9 +144,9 @@ export function anthropicToOpenAI(req: AnthropicRequest): OpenAIRequest {
 
   // Mistral requires: last message must be 'user' or 'tool', not 'assistant'
   const lastMsg = messages[messages.length - 1];
-  const hasToolCalls = lastMsg && (lastMsg as {tool_calls?: unknown[]}).tool_calls;
+  const hasToolCalls = lastMsg && (lastMsg as { tool_calls?: unknown[] }).tool_calls;
   if (lastMsg && lastMsg.role === 'assistant' && !hasToolCalls) {
-    messages.push({role: 'user', content: 'Continue.'});
+    messages.push({ role: 'user', content: 'Continue.' });
   }
 
   return {
@@ -154,8 +154,8 @@ export function anthropicToOpenAI(req: AnthropicRequest): OpenAIRequest {
     messages,
     max_tokens: req.max_tokens,
     stream: req.stream,
-    ...(req.stream && {stream_options: {include_usage: true}}),
-    ...(openaiTools && {tools: openaiTools}),
+    ...(req.stream && { stream_options: { include_usage: true } }),
+    ...(openaiTools && { tools: openaiTools }),
   };
 }
 
@@ -169,7 +169,7 @@ export function normalizeOpenAIToolIds(req: OpenAIRequest): OpenAIRequest {
   const idMap = new Map<string, string>();
 
   for (const msg of req.messages) {
-    const toolCalls = (msg as {tool_calls?: {id: string}[]}).tool_calls;
+    const toolCalls = (msg as { tool_calls?: { id: string }[] }).tool_calls;
     if (msg.role === 'assistant' && toolCalls) {
       for (const call of toolCalls) {
         if (call.id && !idMap.has(call.id)) {
@@ -180,11 +180,11 @@ export function normalizeOpenAIToolIds(req: OpenAIRequest): OpenAIRequest {
   }
 
   const normalizedMessages = req.messages.map((msg) => {
-    const toolCalls = (msg as {tool_calls?: {id: string; type: string; function: {name: string; arguments: string}; index?: number}[]}).tool_calls;
+    const toolCalls = (msg as { tool_calls?: { id: string; type: string; function: { name: string; arguments: string }; index?: number }[] }).tool_calls;
     if (msg.role === 'assistant' && toolCalls) {
       const newToolCalls = toolCalls.map((call) => {
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const {index, ...rest} = call;
+        const { index, ...rest } = call;
         let sanitizedArgs = rest.function?.arguments || '{}';
         try {
           JSON.parse(sanitizedArgs);
@@ -194,36 +194,36 @@ export function normalizeOpenAIToolIds(req: OpenAIRequest): OpenAIRequest {
         return {
           ...rest,
           id: idMap.get(rest.id) || rest.id,
-          function: {...rest.function, arguments: sanitizedArgs},
+          function: { ...rest.function, arguments: sanitizedArgs },
         };
       });
-      return {...msg, tool_calls: newToolCalls};
+      return { ...msg, tool_calls: newToolCalls };
     }
 
-    const toolCallId = (msg as {tool_call_id?: string}).tool_call_id;
+    const toolCallId = (msg as { tool_call_id?: string }).tool_call_id;
     if (msg.role === 'tool' && toolCallId) {
-      return {...msg, tool_call_id: idMap.get(toolCallId) || toolCallId};
+      return { ...msg, tool_call_id: idMap.get(toolCallId) || toolCallId };
     }
 
     return msg;
   });
 
-  return {...req, messages: normalizedMessages};
+  return { ...req, messages: normalizedMessages };
 }
 
 /** Filters out invalid assistant messages (empty content and no tool_calls). */
 export function filterEmptyAssistantMessages(req: OpenAIRequest): OpenAIRequest {
   const filteredMessages = req.messages.filter((msg) => {
     if (msg.role === 'assistant') {
-      const content = (msg as {content?: string | null}).content;
-      const toolCalls = (msg as {tool_calls?: unknown[]}).tool_calls;
+      const content = (msg as { content?: string | null }).content;
+      const toolCalls = (msg as { tool_calls?: unknown[] }).tool_calls;
       if ((!content || content === '') && (!toolCalls || toolCalls.length === 0)) {
         return false;
       }
     }
     return true;
   });
-  return {...req, messages: filteredMessages};
+  return { ...req, messages: filteredMessages };
 }
 
 /** Tools to remove from requests (not supported by vLLM, use MCP alternatives). */
@@ -231,9 +231,9 @@ const TOOLS_TO_REMOVE = ['WebSearch'];
 
 /** Removes unsupported tools from an Anthropic request. */
 export function removeUnsupportedTools(req: AnthropicRequest): AnthropicRequest {
-  const tools = req.tools as {name: string}[] | undefined;
+  const tools = req.tools as { name: string }[] | undefined;
   if (!tools || tools.length === 0) return req;
-  
+
   const filteredTools = tools.filter(tool => !TOOLS_TO_REMOVE.includes(tool.name));
   return { ...req, tools: filteredTools };
 }
@@ -244,17 +244,17 @@ export function openAIToAnthropic(res: OpenAIResponse, model: string): Anthropic
   const content: AnthropicResponse['content'] = [];
 
   if (choice?.message?.content) {
-    content.push({type: 'text', text: choice.message.content});
+    content.push({ type: 'text', text: choice.message.content });
   }
 
-  const toolCalls = (choice?.message as {tool_calls?: {id: string; function: {name: string; arguments: string}}[]})?.tool_calls;
+  const toolCalls = (choice?.message as { tool_calls?: { id: string; function: { name: string; arguments: string } }[] })?.tool_calls;
   if (toolCalls && toolCalls.length > 0) {
     for (const call of toolCalls) {
       let input: Record<string, unknown> = {};
       try {
         input = JSON.parse(call.function.arguments);
       } catch {
-        input = {raw: call.function.arguments};
+        input = { raw: call.function.arguments };
       }
       content.push({
         type: 'tool_use',
@@ -266,7 +266,7 @@ export function openAIToAnthropic(res: OpenAIResponse, model: string): Anthropic
   }
 
   if (content.length === 0) {
-    content.push({type: 'text', text: ''});
+    content.push({ type: 'text', text: '' });
   }
 
   let stopReason: string | null = null;
@@ -306,7 +306,7 @@ export async function* convertOpenAIStreamToAnthropic(
   let outputTokens = 0;
   let contentIndex = 0;
   let isFirstContent = true;
-  const toolCalls = new Map<number, {id: string; name: string; arguments: string}>();
+  const toolCalls = new Map<number, { id: string; name: string; arguments: string }>();
   let finalStopReason: string | null = null;
   let messageStopped = false;
 
@@ -320,7 +320,7 @@ export async function* convertOpenAIStreamToAnthropic(
       model,
       stop_reason: null,
       stop_sequence: null,
-      usage: {input_tokens: estimatedInputTokens, output_tokens: 0},
+      usage: { input_tokens: estimatedInputTokens, output_tokens: 0 },
     },
   })}\n\n`;
 
@@ -352,10 +352,10 @@ export async function* convertOpenAIStreamToAnthropic(
           const finalOutputTokens = Math.max(outputTokens, chunk.usage.completion_tokens || 0);
           yield `event: message_delta\ndata: ${JSON.stringify({
             type: 'message_delta',
-            delta: {stop_reason: finalStopReason, stop_sequence: null},
-            usage: {input_tokens: chunk.usage.prompt_tokens || inputTokens, output_tokens: finalOutputTokens},
+            delta: { stop_reason: finalStopReason, stop_sequence: null },
+            usage: { input_tokens: chunk.usage.prompt_tokens || inputTokens, output_tokens: finalOutputTokens },
           })}\n\n`;
-          yield `event: message_stop\ndata: ${JSON.stringify({type: 'message_stop'})}\n\n`;
+          yield `event: message_stop\ndata: ${JSON.stringify({ type: 'message_stop' })}\n\n`;
           messageStopped = true;
         }
         continue;
@@ -368,16 +368,15 @@ export async function* convertOpenAIStreamToAnthropic(
           yield `event: content_block_start\ndata: ${JSON.stringify({
             type: 'content_block_start',
             index: contentIndex,
-            content_block: {type: 'text', text: ''},
+            content_block: { type: 'text', text: '' },
           })}\n\n`;
           isFirstContent = false;
         }
         yield `event: content_block_delta\ndata: ${JSON.stringify({
           type: 'content_block_delta',
           index: contentIndex,
-          delta: {type: 'text_delta', text: delta.content},
+          delta: { type: 'text_delta', text: delta.content },
         })}\n\n`;
-        outputTokens++;
       }
 
       if (delta.tool_calls) {
@@ -390,14 +389,14 @@ export async function* convertOpenAIStreamToAnthropic(
               arguments: tc.function?.arguments || '',
             });
             if (!isFirstContent) {
-              yield `event: content_block_stop\ndata: ${JSON.stringify({type: 'content_block_stop', index: contentIndex})}\n\n`;
+              yield `event: content_block_stop\ndata: ${JSON.stringify({ type: 'content_block_stop', index: contentIndex })}\n\n`;
               contentIndex++;
             }
             isFirstContent = false;
             yield `event: content_block_start\ndata: ${JSON.stringify({
               type: 'content_block_start',
               index: contentIndex + tc.index,
-              content_block: {type: 'tool_use', id: tc.id || `tool_${tc.index}`, name: tc.function?.name || '', input: {}},
+              content_block: { type: 'tool_use', id: tc.id || `tool_${tc.index}`, name: tc.function?.name || '', input: {} },
             })}\n\n`;
           } else {
             if (tc.function?.arguments) {
@@ -405,7 +404,7 @@ export async function* convertOpenAIStreamToAnthropic(
               yield `event: content_block_delta\ndata: ${JSON.stringify({
                 type: 'content_block_delta',
                 index: contentIndex + tc.index,
-                delta: {type: 'input_json_delta', partial_json: tc.function.arguments},
+                delta: { type: 'input_json_delta', partial_json: tc.function.arguments },
               })}\n\n`;
             }
           }
@@ -414,7 +413,7 @@ export async function* convertOpenAIStreamToAnthropic(
 
       if (choice.finish_reason) {
         if (!isFirstContent) {
-          yield `event: content_block_stop\ndata: ${JSON.stringify({type: 'content_block_stop', index: contentIndex})}\n\n`;
+          yield `event: content_block_stop\ndata: ${JSON.stringify({ type: 'content_block_stop', index: contentIndex })}\n\n`;
         }
 
         let stopReason = 'end_turn';
