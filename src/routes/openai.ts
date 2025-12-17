@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 
-import type { OpenAIRequest, OpenAIResponse } from '../types/index.js';
+import type { OpenAIRequest, OpenAIResponse, OpenAIMessage } from '../types/index.js';
 import { callBackend, streamBackend } from '../services/backend.js';
 import {
   SSE_HEADERS,
@@ -13,6 +13,8 @@ import {
   filterEmptyAssistantMessages,
   sanitizeToolChoice,
   pipe,
+  hashEmail,
+  countTokens,
 } from '../utils/index.js';
 
 // ============================================================================
@@ -50,7 +52,29 @@ async function openaiRoutes(app: FastifyInstance): Promise<void> {
 
     try {
       if (body.stream) return stream(reply, baseUrl, payload, auth);
-      return await callBackend<OpenAIResponse>(`${baseUrl}/v1/chat/completions`, payload, auth);
+      
+      const response = await callBackend<OpenAIResponse>(`${baseUrl}/v1/chat/completions`, payload, auth);
+      
+      // Track metrics (hash email for privacy)
+      const userTag = req.userEmail ? hashEmail(req.userEmail) : 'unknown';
+      
+      const inputTokens = payload.messages.reduce((sum: number, msg: OpenAIMessage) => 
+        sum + (typeof msg.content === 'string' ? countTokens(msg.content) : 0), 0
+      );
+      
+      app.metrics.inferenceTokens.inc(
+        { user: userTag, model: backend.model || body.model, type: 'input' },
+        inputTokens
+      );
+      
+      if (response.usage?.completion_tokens) {
+        app.metrics.inferenceTokens.inc(
+          { user: userTag, model: backend.model || body.model, type: 'output' },
+          response.usage.completion_tokens
+        );
+      }
+      
+      return response;
     } catch (e) {
       req.log.error({ err: e }, 'Request failed');
       reply.code(StatusCodes.INTERNAL_SERVER_ERROR);
